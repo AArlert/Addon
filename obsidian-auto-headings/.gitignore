@@ -1,9 +1,12 @@
 # Dependencies
 node_modules/
 
-# Build output
+# Build output（根目录的构建产物由 esbuild 生成，不入库）
 main.js
 main.js.map
+
+# 例外：产物/ 下的可分发插件文件是交付物，需入库
+!产物/main.js
 
 # Test / coverage
 coverage/

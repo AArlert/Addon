@@ -171,16 +171,131 @@ function getLevelFormat(template: Template, level: number): LevelFormat | undefi
 	}
 }
 
+/** CJK 数字基本字符（0–9）。 */
+const CJK_DIGITS = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+/** 四位段内的位权单位（个、十、百、千）。 */
+const CJK_SMALL_UNITS = ["", "十", "百", "千"];
+/** 大节单位（个、万、亿、兆）；每节四位。 */
+const CJK_BIG_UNITS = ["", "万", "亿", "兆"];
+
+/** 将 1–9999 的整数转换为中文数字（不含大节单位）。 */
+function cjkSection(n: number): string {
+	let out = "";
+	let pendingZero = false;
+	let pos = 0;
+	while (n > 0) {
+		const d = n % 10;
+		if (d === 0) {
+			// 仅当已有更高位输出时，才记一个待补的「零」（多个连续零只补一次）。
+			if (out !== "") {
+				pendingZero = true;
+			}
+		} else {
+			if (pendingZero) {
+				out = CJK_DIGITS[0] + out;
+				pendingZero = false;
+			}
+			out = CJK_DIGITS[d] + CJK_SMALL_UNITS[pos] + out;
+		}
+		n = Math.floor(n / 10);
+		pos++;
+	}
+	return out;
+}
+
+/**
+ * 将一个正整数渲染为中文数字（简体习惯）。
+ * 处理大节单位（万/亿/兆）与节间补零；并将开头的「一十…」规范为「十…」（如 10→十、15→十五）。
+ */
+function toCJK(value: number): string {
+	if (value <= 0) {
+		return CJK_DIGITS[0];
+	}
+	// 拆为每四位一节，sections[0] 为最低节。
+	const sections: number[] = [];
+	let rest = value;
+	while (rest > 0) {
+		sections.push(rest % 10000);
+		rest = Math.floor(rest / 10000);
+	}
+	let out = "";
+	for (let i = sections.length - 1; i >= 0; i--) {
+		const sec = sections[i];
+		if (sec === 0) {
+			// 空节：若后续仍有非零节，补一个「零」（去重）。
+			if (out !== "" && !out.endsWith(CJK_DIGITS[0])) {
+				out += CJK_DIGITS[0];
+			}
+			continue;
+		}
+		// 非最高节且本节不足千（首位为零）时，节间需补「零」。
+		if (out !== "" && sec < 1000 && !out.endsWith(CJK_DIGITS[0])) {
+			out += CJK_DIGITS[0];
+		}
+		out += cjkSection(sec) + CJK_BIG_UNITS[i];
+	}
+	// 去除因空的最低节而多补的尾随「零」（如 10000 → 一万，而非 一万零）。
+	while (out.endsWith(CJK_DIGITS[0])) {
+		out = out.slice(0, -1);
+	}
+	// 规范化：开头的「一十」习惯写作「十」（10→十、11→十一、19→十九）。
+	if (out.startsWith("一十")) {
+		out = out.slice(1);
+	}
+	return out;
+}
+
+/** 带圈数字的各区段起点（Unicode），用于 1–50 的渲染。 */
+const CIRCLED_RANGES: { start: number; from: number; to: number }[] = [
+	{ start: 0x2460, from: 1, to: 20 }, // ①–⑳
+	{ start: 0x3251, from: 21, to: 35 }, // ㉑–㉟
+	{ start: 0x32b1, from: 36, to: 50 }, // ㊱–㊿
+];
+
+/** 将 1–50 的整数渲染为带圈数字；超出范围回退为 `(n)`。 */
+function toCircled(value: number): string {
+	for (const r of CIRCLED_RANGES) {
+		if (value >= r.from && value <= r.to) {
+			return String.fromCodePoint(r.start + (value - r.from));
+		}
+	}
+	return `(${value})`;
+}
+
+/**
+ * 将正整数渲染为双射 26 进制字母序列（a, b, …, z, aa, ab, …）。
+ * `base` 为字母表起点的码位（小写 'a' 或大写 'A'）。
+ */
+function toAlpha(value: number, base: number): string {
+	if (value <= 0) {
+		return String(value);
+	}
+	let n = value;
+	let out = "";
+	while (n > 0) {
+		n -= 1; // 双射：无「零位」，故每位先减一。
+		out = String.fromCharCode(base + (n % 26)) + out;
+		n = Math.floor(n / 26);
+	}
+	return out;
+}
+
 /**
  * 将一个纯阿拉伯整数渲染为指定序号样式的字符串。
- * Milestone 1 仅实现 `arabic`；其余样式的渲染在 Milestone 3 实现。
+ * 支持 `arabic` / `cjk` / `circled` / `lower-alpha` / `upper-alpha`（见 README 3.6）。
  */
 export function renderNumeral(style: NumeralStyle, value: number): string {
 	switch (style) {
 		case "arabic":
 			return String(value);
-		default:
-			throw new Error(`序号样式「${style}」的渲染将在 Milestone 3 实现`);
+		case "cjk":
+			return toCJK(value);
+		case "circled":
+			return toCircled(value);
+		case "lower-alpha":
+			return toAlpha(value, 0x61); // 'a'
+		case "upper-alpha":
+			return toAlpha(value, 0x41); // 'A'
 	}
 }
 
@@ -217,6 +332,31 @@ export function buildPrefix(template: Template, level: number, counter: HeadingC
 	}
 
 	return fmt.prefix + numberStr + fmt.titleSeparator;
+}
+
+/**
+ * 为设置 GUI 生成某级的实时预览前缀序列（如 H3 → `["1.1.1", "1.1.2", "1.1.3"]`）。
+ *
+ * 模拟一个所有父级均为 1 的计数器状态，并让本级依次取 1、2、3，套用模板格式拼装前缀。
+ * 仅用于面板展示，不影响真实编号。返回值已 trim 末尾空白以便紧凑展示。
+ */
+export function previewLevel(template: Template, level: number, count = 3): string[] {
+	if (level < 2 || level > 6) {
+		return [];
+	}
+	const counter = new HeadingCounter();
+	// 父级与本级先全部置 1。
+	for (let l = 2; l <= level; l++) {
+		counter.bump(l);
+	}
+	const out: string[] = [];
+	for (let i = 0; i < count; i++) {
+		if (i > 0) {
+			counter.bump(level); // 本级递增，得到同级的下一个序号。
+		}
+		out.push(buildPrefix(template, level, counter).replace(/\s+$/, ""));
+	}
+	return out;
 }
 
 /** 把字符串中的正则元字符转义，使其可作为字面量拼入正则。 */

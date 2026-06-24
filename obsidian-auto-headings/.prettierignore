@@ -4,4 +4,5 @@ main.js.map
 coverage/
 dist/
 package-lock.json
-README.md
+doc/
+产物/
