@@ -5,4 +5,4 @@ coverage/
 dist/
 package-lock.json
 doc/
-产物/
+release/
