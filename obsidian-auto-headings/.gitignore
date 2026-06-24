@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Build output
+main.js
+main.js.map
+
+# Test / coverage
+coverage/
+
+# Logs
+npm-debug.log*
+
+# Editor / OS
+.DS_Store
