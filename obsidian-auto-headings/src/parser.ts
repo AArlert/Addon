@@ -10,6 +10,8 @@
  * 的逻辑放在 numbering.ts 中处理。
  */
 
+import { findFrontmatter } from "./frontmatter";
+
 /** 单个被识别出的标题。 */
 export interface Heading {
 	/** 标题级别，1–6（`#` 的数量）。 */
@@ -33,16 +35,22 @@ const HEADING_RE = /^(#{1,6})[ \t]+(.*)$/;
  *
  * 围栏代码块的识别规则：以 ``` 或 ~~~ 开启，必须由**同种**栅栏符号闭合
  * （CommonMark 行为）；代码块内部的所有行（包括看似标题的 `#` 行）都被忽略。
+ *
+ * 文件开头的 YAML frontmatter 区块整体跳过——其内部即便出现 `# ` 开头的行
+ * （YAML 注释等）也不视为标题。
  */
 export function parseHeadings(content: string): Heading[] {
 	const lines = content.split("\n");
 	const headings: Heading[] = [];
 
+	// 跳过文件开头的 frontmatter 区块（若存在）。
+	const bodyStart = findFrontmatter(lines).end;
+
 	let inFence = false;
 	/** 开启当前代码块的栅栏符号首字符（'`' 或 '~'），用于要求同种符号闭合。 */
 	let fenceChar = "";
 
-	for (let i = 0; i < lines.length; i++) {
+	for (let i = bodyStart; i < lines.length; i++) {
 		const line = lines[i];
 
 		const fence = line.match(FENCE_RE);

@@ -495,13 +495,13 @@ settings/
 - [x] 解析器与计数引擎的单元测试
 
 ### Milestone 2 — 写入文件与防抖
-- [ ] Editor onChange 监听器，配套各文件防抖计时器
-- [ ] H1 处理双模式：实时仅改本行 / 格式化级联降级子树
-- [ ] 以单一事务将整文件重写回编辑器
-- [ ] H1 标题豁免规则
-- [ ] 「立即重新编号」命令（格式化模式）
-- [ ] 面板全局开关 + 全局切换命令（双向同步）
-- [ ] 读取 frontmatter 单文件开关 `obsidian-auto-headings`（ON/OFF，大小写敏感，非法值忽略）
+- [x] Editor onChange 监听器，配套各文件防抖计时器
+- [x] H1 处理双模式：实时仅改本行 / 格式化级联降级子树
+- [x] 以单一事务将整文件重写回编辑器
+- [x] H1 标题豁免规则
+- [x] 「立即重新编号」命令（格式化模式）
+- [x] 面板全局开关 + 全局切换命令（双向同步）
+- [x] 读取 frontmatter 单文件开关 `obsidian-auto-headings`（ON/OFF，大小写敏感，非法值忽略）
 
 ### Milestone 3 — 模板系统
 - [ ] 模板 schema 定义与校验（结构化字段：prefix / numeral / numberSeparator / titleSeparator / inherit）

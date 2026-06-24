@@ -273,6 +273,13 @@ export interface NumberedHeading {
 	numberedLine: string;
 }
 
+/**
+ * 重新编号的触发模式，决定后续错位 H1 的处理方式（见 README 3.4）。
+ * - `live`（实时编辑 / 防抖自动）：仅将错位 H1 行的 `#` 改写为 `##`，不触动其子树。
+ * - `format`（「立即重新编号」命令）：级联降级，错位 H1 及其下属标题整体下移一级。
+ */
+export type RenumberMode = "live" | "format";
+
 /** {@link numberHeadings} / {@link renumberContent} 的可选项。 */
 export interface NumberOptions {
 	/**
@@ -281,13 +288,60 @@ export interface NumberOptions {
 	 * 通过该回调注入，以便单元测试验证「不占槽位」的计数行为。默认无白名单。
 	 */
 	isWhitelisted?: (heading: Heading) => boolean;
+	/** 触发模式，影响后续错位 H1 的降级方式。默认 `live`。 */
+	mode?: RenumberMode;
+}
+
+/**
+ * 处理多 H1：首个 H1 视为文档标题（保留），后续错位 H1 按模式降级。
+ * 返回**新的**标题数组（级别已调整），保留各标题的 `lineIndex`，不修改入参。
+ *
+ * - `live`：仅将错位 H1 自身降为 H2，子树原样不动。
+ * - `format`：错位 H1 降为 H2，且其下属范围（至下一个原始 H1 或文件末尾）内
+ *   所有标题层级整体下移一级（H6 封顶，不会越过 6）。
+ */
+export function demoteMisplacedH1s(headings: Heading[], mode: RenumberMode): Heading[] {
+	const result: Heading[] = [];
+	let seenFirstH1 = false;
+
+	for (let i = 0; i < headings.length; i++) {
+		const h = headings[i];
+
+		if (h.level !== 1) {
+			result.push(h);
+			continue;
+		}
+
+		if (!seenFirstH1) {
+			// 首个 H1：文档标题，保持不变。
+			seenFirstH1 = true;
+			result.push(h);
+			continue;
+		}
+
+		// 错位 H1：降为 H2。
+		result.push({ ...h, level: 2 });
+
+		if (mode === "format") {
+			// 级联：其下属标题（至下一个原始 H1 或文件末尾）整体下移一级。
+			let j = i + 1;
+			for (; j < headings.length && headings[j].level !== 1; j++) {
+				const sub = headings[j];
+				result.push({ ...sub, level: Math.min(sub.level + 1, 6) });
+			}
+			i = j - 1; // 跳过已处理的子树。
+		}
+	}
+
+	return result;
 }
 
 /**
  * 对一组标题应用模板与计数器，计算每个标题的编号前缀。
  *
- * H1 规则（本里程碑）：所有 H1 均不编号、不计数（首个 H1 为文档标题；后续错位 H1 的
- * 降级处理留待 Milestone 2）。H2–H6 按计数器状态机编号；白名单标题跳过且不占槽位。
+ * 入参通常已由 {@link demoteMisplacedH1s} 处理过错位 H1，故此处剩余的 H1 即文档标题：
+ * 所有 H1（及非 2–6 级）均不编号、不计数。H2–H6 按计数器状态机编号；白名单标题跳过
+ * 且不占槽位。
  */
 export function numberHeadings(
 	headings: Heading[],
@@ -336,18 +390,18 @@ export function numberHeadings(
 }
 
 /**
- * 解析整篇文档、重新编号所有 H2–H6 标题，并返回重写后的完整内容。
+ * 解析整篇文档、按模式处理错位 H1、重新编号所有 H2–H6 标题，返回重写后的完整内容。
  *
- * 仅替换被识别为标题的行，其余行（含代码块、正文）原样保留；行尾换行风格沿用原文。
- * 这是 Milestone 1「应用单一硬编码模板验证输出正确性」的入口；真正写回编辑器的
- * 事务化操作在 Milestone 2 实现。
+ * 仅替换被识别为标题的行，其余行（含 frontmatter、代码块、正文）原样保留；行尾换行
+ * 风格沿用原文。这是「整文件重写」的纯函数形态——单元测试用它验证输出，main.ts 则
+ * 用 {@link computeHeadingEdits} 以单一事务写回编辑器。
  */
 export function renumberContent(
 	content: string,
 	template: Template = DEFAULT_TEMPLATE,
 	options: NumberOptions = {},
 ): string {
-	const headings = parseHeadings(content);
+	const headings = demoteMisplacedH1s(parseHeadings(content), options.mode ?? "live");
 	const numbered = numberHeadings(headings, template, options);
 
 	const lines = content.split("\n");
@@ -355,4 +409,36 @@ export function renumberContent(
 		lines[h.lineIndex] = h.numberedLine;
 	}
 	return lines.join("\n");
+}
+
+/** 一处待写回编辑器的整行替换。 */
+export interface HeadingEdit {
+	/** 目标行下标（0 起）。 */
+	lineIndex: number;
+	/** 该行替换后的新内容（含 `#`、编号前缀与标题文本）。 */
+	newText: string;
+}
+
+/**
+ * 计算重新编号所需的**最小**整行替换集合：仅返回内容实际发生变化的标题行。
+ *
+ * main.ts 据此构造单次编辑器事务（一步撤销、保留未变行的光标/折叠状态）。空集合
+ * 表示无需改动（如文件无 H2+ 标题，或编号已是最新）。
+ */
+export function computeHeadingEdits(
+	content: string,
+	template: Template = DEFAULT_TEMPLATE,
+	options: NumberOptions = {},
+): HeadingEdit[] {
+	const headings = demoteMisplacedH1s(parseHeadings(content), options.mode ?? "live");
+	const numbered = numberHeadings(headings, template, options);
+
+	const lines = content.split("\n");
+	const edits: HeadingEdit[] = [];
+	for (const h of numbered) {
+		if (lines[h.lineIndex] !== h.numberedLine) {
+			edits.push({ lineIndex: h.lineIndex, newText: h.numberedLine });
+		}
+	}
+	return edits;
 }
