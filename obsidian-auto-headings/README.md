@@ -483,10 +483,10 @@ settings/
 ## 5. Roadmap
 
 ### Milestone 0 — 项目初始化
-- [ ] 使用 Obsidian 示例插件结构搭建脚手架
-- [ ] TypeScript、ESLint、Prettier 配置
-- [ ] 最小化 `main.ts`：能正常加载和卸载
-- [ ] 设置页面（`SettingsTab`）骨架（含全局开关）
+- [x] 使用 Obsidian 示例插件结构搭建脚手架
+- [x] TypeScript、ESLint、Prettier 配置
+- [x] 最小化 `main.ts`：能正常加载和卸载
+- [x] 设置页面（`SettingsTab`）骨架（含全局开关）
 
 ### Milestone 1 — 核心解析与计数引擎
 - [ ] `parser.ts`：解析标题行，检测层级，剥离已有前缀，识别代码块边界
