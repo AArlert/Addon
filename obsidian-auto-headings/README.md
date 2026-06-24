@@ -1,162 +1,182 @@
 # obsidian-auto-headings
 
-> An Obsidian plugin that automatically numbers headings in Markdown files using fully customisable, per-path templates — keeping your files clean and consistent without manual effort.
+> 一款 Obsidian 插件，自动为 Markdown 文件中的标题编号，支持完全自定义的多模板与按路径配置——让文件始终整洁一致，无需手动维护。支持中文与英文界面。
 
 ---
 
-## Table of Contents
+## 目录
 
-1. [Background](#1-background)
-2. [Requirements Analysis](#2-requirements-analysis)
-   - [Core Requirements](#21-core-requirements)
-   - [Out of Scope](#22-out-of-scope)
-   - [Edge Cases & Design Decisions](#23-edge-cases--design-decisions)
-3. [Feature Specification](#3-feature-specification)
-   - [Write-to-File Model](#31-write-to-file-model)
-   - [H1 Handling Rules](#32-h1-handling-rules)
-   - [Internal Numbering Model](#33-internal-numbering-model)
-   - [Template System](#34-template-system)
-   - [Whitelist System](#35-whitelist-system)
-   - [Per-Path Configuration](#36-per-path-configuration)
-   - [Trigger & Debounce](#37-trigger--debounce)
-4. [Architecture](#4-architecture)
+1. [背景](#1-背景)
+2. [需求分析](#2-需求分析)
+   - [核心需求](#21-核心需求)
+   - [非目标](#22-非目标)
+   - [边界情况与设计决策](#23-边界情况与设计决策)
+3. [功能规格](#3-功能规格)
+   - [写入文件模型](#31-写入文件模型)
+   - [H1 处理规则](#32-h1-处理规则)
+   - [内部计数模型](#33-内部计数模型)
+   - [模板系统](#34-模板系统)
+   - [白名单系统](#35-白名单系统)
+   - [按路径配置](#36-按路径配置)
+   - [触发与防抖](#37-触发与防抖)
+4. [架构设计](#4-架构设计)
 5. [Roadmap](#5-roadmap)
-6. [Tech Stack](#6-tech-stack)
-7. [Development Setup](#7-development-setup)
+6. [技术栈](#6-技术栈)
+7. [开发环境搭建](#7-开发环境搭建)
 
 ---
 
-## 1. Background
+## 1. 背景
 
-Markdown documents — especially long technical notes, meeting records, or academic writings — benefit enormously from numbered headings. Yet maintaining those numbers by hand is error-prone: inserting a section in the middle requires renumbering everything below it.
+Markdown 文档——尤其是长篇技术笔记、会议记录或学术写作——受益于有编号的标题。然而手动维护编号极易出错：在中间插入一节就需要重新给后续所有内容编号。
 
-`obsidian-auto-headings` solves this by hooking into Obsidian's editor events, detecting heading changes, and rewriting heading prefixes directly in the file with a configurable delay. Users define exactly how each heading level should look (Chinese numerals, legal numbering, outline letters, etc.), and those rules can vary per folder or even per note.
-
----
-
-## 2. Requirements Analysis
-
-### 2.1 Core Requirements
-
-| ID | Requirement |
-|----|-------------|
-| CR-01 | Detect heading changes after a configurable debounce delay (default 300 ms) and rewrite heading prefixes in the active `.md` file |
-| CR-02 | Numbering is written directly into the file (not injected into the render layer only) |
-| CR-03 | The **first H1** in any file is always exempt from numbering (it is treated as the document title) |
-| CR-04 | Subsequent H1s (if present — non-standard but tolerated) are **demoted in place**: the `#` marker is rewritten to `##`, and all headings beneath them are shifted down one level accordingly, until the next original H1 (or end of file) |
-| CR-05 | Headings whose trimmed text (after stripping any existing prefix) exactly matches a whitelist entry are left unnumbered |
-| CR-06 | The whitelist supports global entries and per-folder / per-note overrides; all configuration lives exclusively in the plugin's settings GUI (no frontmatter) |
-| CR-07 | Each heading level's display format is defined by a **template**; templates are fully user-configurable |
-| CR-08 | Multiple named templates can be defined; a path-matching rule maps each folder (or note) to a template |
-| CR-09 | Internally, the plugin tracks all heading levels using plain Arabic counters; display formats are applied only when writing prefixes to the file |
-| CR-10 | The plugin re-numbers the entire file on each trigger (not just the edited section), ensuring global consistency |
-
-### 2.2 Out of Scope
-
-- Render-layer-only (CSS counter) injection — numbering must be visible in raw Markdown
-- Numbering H1 headings that are the first heading in the file
-- Table-of-contents generation (separate concern)
-- Any configuration via YAML frontmatter (intentionally excluded to keep notes clean)
-- Multi-file batch renumbering (post-MVP)
-- Git-aware change minimisation (post-MVP)
-
-### 2.3 Edge Cases & Design Decisions
-
-| Scenario | Decision |
-|----------|----------|
-| File has no H2+ headings | Plugin writes nothing; file is untouched |
-| Heading is on the whitelist AND has children | The whitelisted heading is skipped (no prefix), but its counter slot is still consumed so that sibling numbering remains correct |
-| User manually edits a heading prefix | The next debounce cycle rewrites it to the correct value; manual edits to prefixes are intentionally overwritten |
-| Multiple H1s | First H1: no number, not demoted. Each subsequent H1: its `#` is rewritten to `##`, and all headings within its subtree are shifted down one level (H2→H3, H3→H4, etc.) until the next original H1 or end of file |
-| Nested heading skips a level (H2 → H4) | Plugin numbers what is present; missing intermediate levels are simply not instantiated |
-| Whitelist entry contains leading/trailing spaces | Matched after `trim()` on both sides |
-| Per-note config and per-folder config both match | Per-note wins (most-specific-wins) |
-| No template matches a path | The global default template is applied |
+`obsidian-auto-headings` 通过挂接 Obsidian 的编辑器事件，在用户编辑后经可配置的延迟自动检测标题变化，并将编号前缀直接写入文件。用户可精确定义每一级标题的显示格式（中文数字、法律编号、字母列表等），这些规则可按文件夹乃至单个文件分别配置。
 
 ---
 
-## 3. Feature Specification
+## 2. 需求分析
 
-### 3.1 Write-to-File Model
+### 2.1 核心需求
 
-The plugin uses Obsidian's `Editor` API to read and rewrite heading lines. On each trigger cycle:
+| 编号 | 需求描述 |
+|------|----------|
+| CR-01 | 在可配置的防抖延迟（默认 300 ms）后检测标题变化，并将编号前缀写入当前活跃的 `.md` 文件 |
+| CR-02 | 编号直接写入文件（而非仅注入渲染层） |
+| CR-03 | 文件中**第一个 H1** 始终豁免编号，视为文档标题 |
+| CR-04 | 后续出现的 H1（不规范但须容错）在文件中被**降级处理**：`#` 标记改写为 `##`，其下属的标题层级也相应下移，直至下一个原始 H1 或文件末尾 |
+| CR-05 | 修剪空格后与白名单条目**完全匹配**的标题不添加编号前缀（但其计数器槽位仍正常累加） |
+| CR-06 | 白名单支持全局条目与按文件夹覆盖；所有配置**仅在插件设置 GUI 中管理**，不使用 frontmatter |
+| CR-07 | 每个标题级别的显示格式由**模板**定义，模板完全可由用户自定义 |
+| CR-08 | 可定义多个具名模板；路径匹配规则将每个文件夹（或文件）映射到指定模板 |
+| CR-09 | 插件内部使用纯阿拉伯数字计数器追踪各标题级别；显示格式仅在写入文件时才应用 |
+| CR-10 | 每次触发时对整个文件重新编号（而非仅修改编辑点附近的区域），确保全局一致性 |
+| CR-11 | 界面支持**中文**与**英文**（通过 Obsidian 的 `i18n` 机制实现） |
 
-1. Parse the full file line-by-line to identify heading lines (lines starting with one or more `#` followed by a space).
-2. Strip any existing auto-heading prefix from each heading's text.
-3. Re-compute the correct prefix for every heading using the active template and counter state.
-4. Replace each heading line in the editor atomically (single transaction to avoid excessive undo entries).
+### 2.2 非目标
 
-> **Why whole-file rewrite?** Partial rewriting (only the changed section) would require tracking which headings are "below" the edit point and whether counter resets are needed above it. Whole-file rewriting is simpler, correct, and fast enough for any realistic note length.
+- 仅注入渲染层（CSS 计数器）——编号必须在原始 Markdown 中可见
+- 对文件中第一个 H1 编号
+- 生成目录（独立关注点）
+- 通过 YAML frontmatter 进行任何配置（刻意排除，以保持笔记整洁）
+- 多文件批量重新编号（后续版本）
+- Git 感知最小化差异（后续版本）
 
-### 3.2 H1 Handling Rules
+### 2.3 边界情况与设计决策
 
-The plugin performs a **two-pass** process:
+| 场景 | 决策 |
+|------|------|
+| 文件中无 H2 及以上标题 | 插件不写入任何内容，文件保持不变 |
+| 白名单标题有子标题 | 该标题跳过前缀，但其计数器槽位正常累加，保证兄弟标题编号连续 |
+| 用户手动编辑了编号前缀 | 下一个防抖周期会将其覆盖为正确值；对前缀的手动编辑是预期行为 |
+| 存在多个 H1 | 第一个 H1：不编号，不降级。后续每个 H1：`#` 改写为 `##`，其下属标题依次下移一级，直至下一个原始 H1 或文件末尾 |
+| 标题层级跳跃（如 H2 → H4） | 插件对实际存在的标题编号；缺失的中间层级不实例化计数器 |
+| 白名单条目含首尾空格 | 双侧 `trim()` 后比较 |
+| 同一路径同时匹配文件规则和文件夹规则 | 最具体的规则（文件路径 > 文件夹路径 > `**`）优先；并列时列表中靠后的规则胜出 |
+| 无任何路径规则匹配当前文件 | 使用内置系统默认模板 |
+| 代码块内的 `#` 行 | 不视为标题，跳过处理 |
 
-**Pass 1 — H1 demotion (structural rewrite):**
+---
+
+## 3. 功能规格
+
+### 3.1 写入文件模型
+
+插件使用 Obsidian 的 `Editor` API 读取并改写标题行。每次触发周期执行以下步骤：
+
+1. 逐行解析完整文件，识别标题行（以一个或多个 `#` 加空格开头且不在代码块内的行）。
+2. 对每行标题的文本剥离已有的自动编号前缀。
+3. 执行 H1 降级处理（见 [3.2](#32-h1-处理规则)）。
+4. 基于当前模板和计数器状态为每个标题重新计算正确的前缀。
+5. 以**单一事务**将所有修改写回编辑器（避免产生过多撤销记录）。
+
+> **为何整文件重写？** 局部重写（仅修改编辑点附近）需要追踪编辑点以下哪些标题受到影响、计数器是否需要重置。整文件重写逻辑更简单、结果更正确，对于任何现实长度的笔记来说性能均可接受。
+
+### 3.2 H1 处理规则
+
+插件对包含多个 H1 的文件执行**两遍处理**：
+
+**第一遍——H1 降级（结构性改写）：**
 
 ```
-Scan the file top-to-bottom:
+从上至下扫描文件：
 
-1. First `# ` heading encountered → "document title".
-   Action: leave the `#` as-is; mark it as exempt (no prefix, no counter).
+1. 遇到的第一个 `# ` 标题 → 标记为"文档标题"。
+   操作：保留 `#` 不变；标记为豁免（不编号，不计数）。
 
-2. Each subsequent `# ` heading → "misplaced H1".
-   Action: rewrite the `#` marker to `##` in the file.
-   All headings within its subtree (until the next original `# ` or EOF)
-   are shifted down one level:
+2. 此后每遇到一个 `# ` 标题 → 视为"错位 H1"。
+   操作：将该行的 `#` 改写为 `##`。
+   该标题的下属范围内（直至下一个原始 `# ` 或文件末尾）
+   所有标题层级下移一级：
      ##  → ###
      ### → ####
-     ... and so on.
+     依此类推。
 
-Example (original → after demotion):
+示例（原始 → 降级后）：
 
-  # My Document          →  # My Document          (title, untouched)
-  ## Section A           →  ## Section A
-  ### Detail             →  ### Detail
-  ### Detail             →  ### Detail
-  # Appendix             →  ## Appendix             (demoted)
-  ## Sub                 →  ### Sub                 (shifted)
+  # 我的文档          →  # 我的文档          （文档标题，不变）
+  ## 第一章            →  ## 第一章
+  ### 细节              →  ### 细节
+  ### 细节              →  ### 细节
+  # 附录               →  ## 附录             （降级）
+  ## 小节              →  ### 小节            （下移）
 ```
 
-**Pass 2 — Numbering:**
-After structural rewriting, the file is re-parsed and numbered as if it had no H1s beyond the document title. All subsequent logic operates on the post-demotion heading levels.
+**第二遍——编号：**
+结构改写完成后重新解析文件，视其为不含第二个 H1 的标准文件进行编号。后续所有逻辑均基于降级后的标题层级运行。
 
-### 3.3 Internal Numbering Model
+### 3.3 内部计数模型
 
-The plugin maintains an array of integer counters `[c2, c3, c4, c5, c6]`, one per heading level H2–H6 (H1 is the document title and is never counted).
+插件维护一个计数器数组 `[c2, c3, c4, c5, c6]`，分别对应 H2–H6（H1 为文档标题，不参与计数）。
 
-Rules:
-- When a heading at level *n* is encountered, `c[n]` is incremented and all counters for levels *> n* are reset to 0.
-- The counter array is **independent of display format**; format conversion is applied only at write time.
-- Whitelisted headings do **not** skip their counter slot — the counter increments normally, but no prefix is written to the file.
-- All arithmetic uses plain Arabic integers internally, regardless of what symbol style the template specifies.
+规则：
+- 遇到第 *n* 级标题时，`c[n]` 加一，所有 *> n* 级的计数器归零。
+- 计数器数组与显示格式**相互独立**；格式转换仅在写入时进行。
+- 白名单中的标题**不跳过计数器槽位**——计数器正常累加，但不向文件写入前缀。
+- 内部计算全程使用纯阿拉伯整数，与模板指定的符号样式无关。
 
-**Example — internal counter state vs. written output:**
+**示例——内部计数器状态 vs. 写入文件内容：**
 
 ```
-Internal tracking (pure Arabic)    Written to file (template applied)
-──────────────────────────────    ──────────────────────────────────
-H2 → c2=1                    →    一、
-H3 → c3=1                    →    1.1
-H3 → c3=2                    →    1.2
-H4 → c4=1                    →    a)
-H2 → c2=2, c3..=0            →    二、
-H3 → c3=1 (whitelisted)      →    (no prefix written; counter still = 1)
-H3 → c3=2                    →    2.2
-H4 → c4=1                    →    a)
+内部追踪（纯阿拉伯数字）       写入文件（模板应用后）
+────────────────────────    ────────────────────────
+H2 → c2=1               →   一、
+H3 → c3=1               →   1.1
+H3 → c3=2               →   1.2
+H4 → c4=1               →   a)
+H2 → c2=2，c3..=0       →   二、
+H3 → c3=1（白名单）      →   （不写入前缀；计数器仍为 1）
+H3 → c3=2               →   2.2
+H4 → c4=1               →   a)
 ```
 
-> **Cross-level variable resolution**: When a format string references a parent level (e.g. `{p2}` in an H3 format), the plugin substitutes the current `c2` value as a plain Arabic numeral, regardless of how H2 itself is displayed. This is what allows `1.1`, `1.2`, `2.2` etc. while H2 shows `一、`, `二、`.
+> **跨级变量解析**：当格式字符串引用父级（如 H3 格式中的 `{p2}`），插件将当前 `c2` 的值以纯阿拉伯数字替换，与 H2 本身的显示格式无关。这使得 H2 显示为 `一、`、`二、` 的同时，H3 仍能正确输出 `1.1`、`1.2`、`2.2` 等。
 
-### 3.4 Template System
+### 3.4 模板系统
 
-A **template** is a named configuration object that maps each heading level to a format string. Templates are created and edited exclusively in the plugin's **Settings GUI** — no YAML or frontmatter involved.
+**模板**是一个具名配置对象，将各标题级别映射到格式字符串。模板的创建与编辑**完全在插件设置 GUI 中进行**，不涉及任何 YAML 或 frontmatter。
 
-**Template schema (internal representation stored in `data.json`):**
+**模板文件存储位置：**
+
+每个模板保存为插件文件夹下 `templates/` 子目录中的独立 `.json` 文件。该目录在用户创建第一个模板时由插件自动生成，无需手动操作。
+
+```
+.obsidian/plugins/obsidian-auto-headings/
+├── main.js
+├── manifest.json
+├── data.json               ← 插件设置（路径规则、白名单、防抖延迟等），不含模板内容
+└── templates/              ← 首次创建模板时自动生成
+    ├── default.json        ← 内置默认模板（始终存在）
+    ├── 学术风格.json
+    └── 技术文档.json
+```
+
+文件名由模板名称经过路径安全化处理后生成（非法字符替换为 `-`，空格保留或替换为 `_`，保证跨平台兼容）。`data.json` 中的路径规则通过模板名称（即文件名去掉 `.json` 后缀后还原）引用对应模板。
+
+**模板文件格式（`.json`）：**
 
 ```jsonc
 {
-  "name": "academic",        // unique template identifier shown in GUI dropdowns
+  "name": "学术风格",
   "levels": {
     "h2": { "format": "{cn}、" },
     "h3": { "format": "{p2}.{n} " },
@@ -167,44 +187,46 @@ A **template** is a named configuration object that maps each heading level to a
 }
 ```
 
-**Format variables (usable inside any format string):**
+选用 JSON 的理由：TypeScript 原生支持、无需额外依赖、人类可读且可手动编辑、Obsidian 的 `app.vault` 文件 API 可直接读写。
 
-| Variable | Meaning |
-|----------|---------|
-| `{n}` | This level's own counter, rendered in Arabic numerals |
-| `{cn}` | This level's counter in Chinese upper-case numerals (一、二、三…) |
-| `{CN}` | This level's counter in Chinese lower-case numerals (same glyphs; reserved for future distinction) |
-| `{alpha}` | This level's counter as a lowercase letter (a, b, … z, aa, ab, …) |
-| `{Alpha}` | Uppercase letter variant (A, B, … Z, AA, …) |
-| `{roman}` | Lowercase Roman numeral (i, ii, iii, …) |
-| `{Roman}` | Uppercase Roman numeral (I, II, III, …) |
-| `{p2}` … `{p5}` | Counter value of the specified parent level, always in Arabic (for cross-level concatenation, e.g. `{p2}.{n}` → `2.3`) |
+**格式字符串变量（可用于任意级别的格式字符串）：**
 
-A **default template** is always present and cannot be deleted; it can be edited. Additional named templates can be created, duplicated, renamed, and deleted — all within the Settings GUI. Template names appear in a dropdown wherever a path rule needs to reference a template.
+| 变量 | 含义 |
+|------|------|
+| `{n}` | 本级计数器，以阿拉伯数字呈现 |
+| `{cn}` | 本级计数器，以中文大写数字呈现（一、二、三…） |
+| `{CN}` | 本级计数器，以中文小写数字呈现（保留，与 `{cn}` 字形相同） |
+| `{alpha}` | 本级计数器，以小写字母呈现（a, b, … z, aa, ab, …） |
+| `{Alpha}` | 大写字母变体（A, B, … Z, AA, …） |
+| `{roman}` | 小写罗马数字（i, ii, iii, …） |
+| `{Roman}` | 大写罗马数字（I, II, III, …） |
+| `{p2}` … `{p5}` | 指定父级的计数器值，始终以阿拉伯数字呈现（用于跨级拼接，如 `{p2}.{n}` → `2.3`） |
 
-**Settings GUI layout for templates:**
+**默认模板**（`default.json`）始终存在且不可删除，但可编辑。其他具名模板可在设置 GUI 中创建、复制、重命名、删除——模板名称会出现在所有需要引用模板的下拉框中。重命名模板时，插件自动将旧文件删除并以新名称写入，同时更新 `data.json` 中所有引用该模板名的路径规则。
+
+**设置 GUI 模板区域布局：**
 
 ```
-┌─ Templates ─────────────────────────────────────────────────────────┐
-│  [+ New template]  [Duplicate]  [Delete]                            │
+┌─ 模板 ──────────────────────────────────────────────────────────────┐
+│  [+ 新建模板]  [复制]  [删除]                                       │
 │                                                                     │
-│  Template name: [ academic          ▼ ]                             │
+│  模板名称：[ 学术风格          ▼ ]                                  │
 │                                                                     │
-│  Level │ Format string  │ Preview                                   │
-│  ──────┼────────────────┼─────────                                  │
-│  H2    │ {cn}、         │ 一、 二、 三、                            │
-│  H3    │ {p2}.{n}       │ 1.1  1.2  2.1                            │
-│  H4    │ {alpha})       │ a)  b)  c)                                │
-│  H5    │ ({alpha})      │ (a)  (b)                                  │
-│  H6    │ {n}.           │ 1.  2.                                    │
+│  级别 │ 格式字符串     │ 预览                                       │
+│  ─────┼────────────────┼──────────────────                         │
+│  H2   │ {cn}、         │ 一、  二、  三、                           │
+│  H3   │ {p2}.{n}       │ 1.1   1.2   2.1                           │
+│  H4   │ {alpha})       │ a)  b)  c)                                 │
+│  H5   │ ({alpha})      │ (a)  (b)                                   │
+│  H6   │ {n}.           │ 1.  2.                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.5 Whitelist System
+### 3.5 白名单系统
 
-Whitelists contain **exact-match** strings compared against the heading text after stripping any existing prefix and trimming whitespace.
+白名单包含**完全匹配**字符串，与剥离现有前缀并修剪空格后的标题文本进行比较。
 
-**Built-in global defaults** (pre-populated, user-editable):
+**内置全局默认条目**（预填充，用户可编辑）：
 ```
 目录
 附录
@@ -213,192 +235,200 @@ References
 Appendix
 ```
 
-**Scoping and override rules:**
+**作用域与覆盖规则：**
 
 ```
-Resolution order (most specific wins):
+解析顺序（最具体者优先）：
 
-1. Per-note rule     (path rule matching the exact file path, set in Settings GUI)
-2. Per-folder rule   (path rule matching the closest ancestor folder, set in Settings GUI)
-3. Global default    (the fallback template + whitelist, set in Settings GUI)
+1. 文件级规则（在设置 GUI 中为该文件路径配置的规则）
+2. 文件夹级规则（在设置 GUI 中为最近祖先文件夹配置的规则）
+3. 全局默认（在设置 GUI 中配置的全局白名单）
 
-Merge strategy for whitelists: the resolved whitelist is the UNION of all matching
-scopes, unless a scope is configured with "override: true" in the GUI, in which
-case only that scope's whitelist is used.
+白名单合并策略：解析得到的白名单为所有匹配作用域的并集（UNION），
+除非某个作用域在 GUI 中配置了「覆盖：是」，此时仅使用该作用域的白名单。
 ```
 
-> **No frontmatter.** All configuration — templates, whitelists, path rules, per-note overrides — is managed exclusively through the plugin's Settings GUI. Frontmatter in notes is never read or written by this plugin.
+> **无 frontmatter。** 所有配置——模板、白名单、路径规则——均专属于插件设置 GUI 管理。本插件不读取也不写入 Obsidian 笔记的 frontmatter。
 
-### 3.6 Per-Path Configuration
+### 3.6 按路径配置
 
-All path rules are managed in the plugin's **Settings GUI** — a visual table where each row maps a path pattern to a template (chosen from a dropdown of defined templates) and an optional local whitelist.
+所有路径规则在插件**设置 GUI** 中管理——一张可视化表格，每行将一个路径模式映射到所选模板（通过下拉框选择）及可选的局部白名单。
 
-**GUI layout:**
+**GUI 布局：**
 
 ```
-┌─ Path Rules ────────────────────────────────────────────────────────┐
-│  [+ Add rule]                                                       │
+┌─ 路径规则 ──────────────────────────────────────────────────────────┐
+│  [+ 添加规则]                                                       │
 │                                                                     │
-│  #  │ Path pattern              │ Template       │ Whitelist        │
-│  ───┼───────────────────────────┼────────────────┼──────────────    │
-│  1  │ **                        │ [default    ▼] │ [Edit…]          │
-│  2  │ Projects/**               │ [technical  ▼] │ [Edit…]          │
-│  3  │ Reading Notes/**          │ [academic   ▼] │ [Edit…]          │
-│  4  │ Reading Notes/Deep Work…  │ [minimal    ▼] │ [Edit…]          │
-│                                 ↑ drag to reorder                   │
+│  #  │ 路径模式                   │ 模板           │ 白名单          │
+│  ───┼────────────────────────────┼────────────────┼──────────────── │
+│  1  │ **                         │ [默认       ▼] │ [编辑…]         │
+│  2  │ Projects/**                │ [技术文档   ▼] │ [编辑…]         │
+│  3  │ 读书笔记/**                │ [学术风格   ▼] │ [编辑…]         │
+│  4  │ 读书笔记/深度工作.md       │ [简洁风格   ▼] │ [编辑…]         │
+│                                   ↑ 可拖拽排序                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Resolution logic:**
+**解析逻辑：**
 
-1. All rules whose path pattern matches the active file are collected.
-2. The **most specific match** wins (exact file path > longest folder prefix > `**`).
-3. Tie-breaking: the rule with the **higher row number** (lower in the list) wins, allowing overrides by adding rules at the bottom.
-4. If no rule matches, the built-in system default is used.
+1. 收集所有路径模式与当前文件匹配的规则。
+2. **最具体的匹配**优先（精确文件路径 > 最长文件夹前缀 > `**`）。
+3. 并列时，**行号更大**（列表中靠后）的规则胜出，便于通过在末尾添加规则来覆盖已有规则。
+4. 若无任何规则匹配，使用内置系统默认值。
 
-### 3.7 Trigger & Debounce
+### 3.7 触发与防抖
 
 ```
-User types / pastes / deletes in the editor
+用户在编辑器中输入 / 粘贴 / 删除
         ↓
-Editor onChange event fires
+Editor onChange 事件触发
         ↓
-Debounce timer resets (default: 300 ms, configurable 50–2000 ms)
-        ↓  [timer expires]
-Plugin checks: does the file contain any headings?
-        ↓  [yes]
-Full-file renumbering cycle runs
+防抖计时器重置（默认 300 ms，可配置范围 50–2000 ms）
+        ↓  [计时器到期]
+插件检查：文件是否包含任何标题？
+        ↓  [是]
+完整文件重新编号周期启动
         ↓
-Editor content updated in a single transaction
+以单一事务更新编辑器内容
 ```
 
-- The debounce timer is per-file; editing a second note does not cancel the first note's pending update.
-- If the file is closed before the timer fires, the pending update is cancelled (no write to a closed file).
-- A manual **"Renumber now"** command is available in the Command Palette for immediate triggering regardless of debounce.
+- 防抖计时器以文件为单位；编辑另一个笔记不会取消当前笔记的待处理更新。
+- 若文件在计时器触发前被关闭，待处理的更新将被取消（不向已关闭的文件写入）。
+- 命令面板中提供**「立即重新编号」**命令，可绕过防抖立即触发。
 
 ---
 
-## 4. Architecture
+## 4. 架构设计
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  main.ts  (Plugin entry point)                                   │
-│  • Registers editor-change listener                              │
-│  • Manages per-file debounce timers                              │
-│  • Loads / saves settings                                        │
+│  main.ts（插件入口）                                             │
+│  • 注册编辑器变化监听器                                          │
+│  • 管理各文件的防抖计时器                                        │
+│  • 加载 / 保存设置                                               │
 └──────┬────────────────────────────┬────────────────────────────┬─┘
        │                            │                            │
 ┌──────▼──────┐           ┌─────────▼─────────┐      ┌──────────▼──────────┐
 │  parser.ts  │           │  numbering.ts      │      │  settings/           │
-│  • Parse    │           │  • Counter state   │      │  SettingsTab.ts      │
-│    headings │           │  • Apply template  │      │  • Template editor   │
-│    from raw │           │  • Resolve format  │      │  • Whitelist editor  │
-│    Markdown │  ──────►  │    variables       │      │  • Path rules        │
-│  • Strip    │           │  • Write prefixes  │      │    manager           │
-│    existing │           │    back to editor  │      └──────────────────────┘
-│    prefixes │           └────────────────────┘
+│  • 从原始   │           │  • 计数器状态机    │      │  SettingsTab.ts      │
+│    Markdown │           │  • H1 降级逻辑     │      │  • 模板编辑器        │
+│    解析标题 │           │  • 应用模板        │      │  • 白名单编辑器      │
+│  • 剥离现有 │  ──────►  │  • 解析格式变量    │      │  • 路径规则管理器    │
+│    前缀     │           │  • 将前缀写回      │      └──────────────────────┘
+│  • 识别代码 │           │    编辑器          │
+│    块边界   │           └────────────────────┘
 └─────────────┘
 
 settings/
-├── TemplateStore.ts     // CRUD for named templates
-├── WhitelistStore.ts    // Global + scoped whitelist management
-└── PathRuleStore.ts     // Path → template + whitelist resolution
+├── TemplateStore.ts     // 模板文件的增删改查（读写 templates/*.json，管理目录自动创建）
+├── WhitelistStore.ts    // 全局与作用域白名单管理
+└── PathRuleStore.ts     // 路径 → 模板 + 白名单的解析
 ```
 
-**Settings storage:** `plugin.loadData()` / `plugin.saveData()` (Obsidian standard), stored in `.obsidian/plugins/obsidian-auto-headings/data.json`.
+**存储分层：**
+
+| 存储位置 | 内容 | 读写方式 |
+|----------|------|----------|
+| `data.json` | 路径规则、白名单、防抖延迟等插件设置 | `plugin.loadData()` / `plugin.saveData()` |
+| `templates/*.json` | 各模板定义文件，每个模板一个文件 | `app.vault.adapter` 文件 API（`read` / `write` / `exists` / `mkdir`） |
 
 ---
 
 ## 5. Roadmap
 
-### Milestone 0 — Project Bootstrap
-- [ ] Scaffold with `npm create obsidian-plugin` (or manual scaffold matching Obsidian sample plugin structure)
-- [ ] TypeScript, ESLint, Prettier configuration
-- [ ] Minimal `main.ts` that loads and unloads cleanly
-- [ ] Basic settings tab skeleton
+### Milestone 0 — 项目初始化
+- [ ] 使用 Obsidian 示例插件结构搭建脚手架
+- [ ] TypeScript、ESLint、Prettier 配置
+- [ ] 最小化 `main.ts`：能正常加载和卸载
+- [ ] 中英文 i18n 基础文案文件（`i18n/zh.json`、`i18n/en.json`）
+- [ ] 设置页面（`SettingsTab`）骨架
 
-### Milestone 1 — Core Parser & Numbering Engine
-- [ ] `parser.ts`: parse heading lines, detect level, strip existing prefix
-- [ ] `numbering.ts`: counter state machine (increment, reset on level change)
-- [ ] Apply a single hardcoded template to verify output correctness
-- [ ] Unit tests for parser and numbering engine
+### Milestone 1 — 核心解析与计数引擎
+- [ ] `parser.ts`：解析标题行，检测层级，剥离已有前缀，识别代码块边界
+- [ ] `numbering.ts`：计数器状态机（累加、随层级变化归零）
+- [ ] 应用单一硬编码模板以验证输出正确性
+- [ ] 解析器与计数引擎的单元测试
 
-### Milestone 2 — Write-to-File & Debounce
-- [ ] Editor onChange listener with per-file debounce timer
-- [ ] Two-pass rewrite: H1 demotion (structural), then numbering
-- [ ] Whole-file rewrite in a single editor transaction
-- [ ] H1 title-skip rule
-- [ ] Manual "Renumber now" command
+### Milestone 2 — 写入文件与防抖
+- [ ] Editor onChange 监听器，配套各文件防抖计时器
+- [ ] 两遍处理：H1 降级（结构性改写）+ 编号
+- [ ] 以单一事务将整文件重写回编辑器
+- [ ] H1 标题豁免规则
+- [ ] 「立即重新编号」命令
 
-### Milestone 3 — Template System
-- [ ] Template schema definition and validation
-- [ ] Format variable resolution (`{n}`, `{cn}`, `{alpha}`, `{roman}`, `{p2}`…`{p5}`)
-- [ ] Built-in symbol renderers (Arabic, Chinese, alpha, Roman)
-- [ ] Default template pre-populated
-- [ ] Template CRUD in settings GUI (name, per-level format strings, live preview row)
+### Milestone 3 — 模板系统
+- [ ] 模板 schema 定义与校验
+- [ ] `templates/` 目录自动创建逻辑（首次写入模板时触发，使用 `app.vault.adapter`）
+- [ ] 格式变量解析（`{n}`、`{cn}`、`{alpha}`、`{roman}`、`{p2}`…`{p5}`）
+- [ ] 内置符号渲染器（阿拉伯数字、中文数字、字母、罗马数字）
+- [ ] 写入并预填充默认模板（`templates/default.json`）
+- [ ] 设置 GUI 中的模板增删改查（名称、各级格式字符串、实时预览行）
+- [ ] 重命名模板时自动更新文件名及 `data.json` 中的路径规则引用
 
-### Milestone 4 — Whitelist System
-- [ ] Global whitelist (exact match after trim)
-- [ ] Whitelist check integrated into numbering cycle (counter increments; prefix suppressed)
-- [ ] Whitelist editor in settings GUI (add / remove entries; union vs. override toggle)
-- [ ] Per-folder whitelist configurable in path rule row
-- [ ] Whitelist merge / override resolution logic
+### Milestone 4 — 白名单系统
+- [ ] 全局白名单（完全匹配，双侧 trim）
+- [ ] 白名单检查集成到计数周期（计数器累加；前缀写入抑制）
+- [ ] 设置 GUI 中的白名单编辑器（添加 / 删除条目；并集 vs. 覆盖开关）
+- [ ] 路径规则行中的文件夹级白名单配置
+- [ ] 白名单合并 / 覆盖解析逻辑
 
-### Milestone 5 — Per-Path Configuration
-- [ ] Path rule store (glob matching, specificity resolution)
-- [ ] Path rules editor in settings UI
-- [ ] Per-folder template assignment
-- [ ] Per-note template override via frontmatter
+### Milestone 5 — 按路径配置
+- [ ] 路径规则存储（glob 匹配，具体度解析）
+- [ ] 设置 GUI 中的路径规则编辑器（可视化表格，模板下拉框，可拖拽排序）
+- [ ] 文件夹级模板指定
+- [ ] 路径规则解析与模板激活
 
-### Milestone 6 — Polish & Robustness
-- [ ] Configurable debounce delay in settings (50–2000 ms slider)
-- [ ] Cancel pending timer when file is closed
-- [ ] Handle edge cases: empty files, files with only H1, headings inside code blocks (must be ignored)
-- [ ] Localisation scaffold (i18n)
-- [ ] Comprehensive integration tests with real Vault fixtures
+### Milestone 6 — 健壮性与完善
+- [ ] 设置中可配置防抖延迟（50–2000 ms 滑块）
+- [ ] 文件关闭时取消待处理计时器
+- [ ] 边界情况处理：空文件、仅含 H1 的文件、代码块内的 `#` 行
+- [ ] 中英文文案完整覆盖
+- [ ] 使用真实 Vault 文件夹的完整集成测试
 
-### Milestone 7 — Post-MVP Features (Backlog)
-- [ ] Multi-file batch renumbering command
-- [ ] Export with numbering baked in (for PDF / Pandoc workflows)
-- [ ] "Preview mode" — show what numbering would look like before writing
-- [ ] Community submission to Obsidian plugin directory
-
----
-
-## 6. Tech Stack
-
-| Layer | Choice | Reason |
-|-------|--------|--------|
-| Language | TypeScript | Obsidian's official recommendation; type safety for template schema |
-| Framework | Obsidian Plugin API | Standard plugin interface (`Plugin`, `Editor`, `SettingTab`) |
-| Build | `esbuild` (via Obsidian sample plugin build script) | Fast incremental builds; matches community convention |
-| Testing | Vitest | Fast, ESM-native; can test parser/numbering logic without Obsidian runtime |
-| Linting | ESLint + `@typescript-eslint` | Catches common TS mistakes |
-| Formatting | Prettier | Consistent code style |
+### Milestone 7 — 后续功能（Backlog）
+- [ ] 多文件批量重新编号命令
+- [ ] 带编号的导出（用于 PDF / Pandoc 工作流）
+- [ ] 「预览模式」——写入前预览编号效果
+- [ ] 提交至 Obsidian 社区插件目录
 
 ---
 
-## 7. Development Setup
+## 6. 技术栈
 
-> Prerequisites: Node.js ≥ 18, an Obsidian vault for testing
+| 层次 | 选型 | 理由 |
+|------|------|------|
+| 语言 | TypeScript | Obsidian 官方推荐；为模板 schema 提供类型安全 |
+| 框架 | Obsidian Plugin API | 标准插件接口（`Plugin`、`Editor`、`SettingTab`） |
+| 构建 | `esbuild`（通过 Obsidian 示例插件构建脚本） | 快速增量构建；符合社区惯例 |
+| 测试 | Vitest | 快速、原生 ESM；无需 Obsidian 运行时即可测试解析器与计数逻辑 |
+| 代码检查 | ESLint + `@typescript-eslint` | 捕获常见 TS 错误 |
+| 代码格式 | Prettier | 统一代码风格 |
+| 国际化 | 自定义 `i18n/zh.json` + `i18n/en.json`，通过辅助函数加载 | Obsidian 无内置 i18n API；轻量自实现即可满足双语需求 |
+
+---
+
+## 7. 开发环境搭建
+
+> 前置条件：Node.js ≥ 18，用于测试的 Obsidian Vault
 
 ```bash
-# 1. Clone into your vault's plugin directory
+# 1. 克隆到 Vault 的插件目录
 cd /path/to/your/vault/.obsidian/plugins
 git clone <repo> obsidian-auto-headings
 cd obsidian-auto-headings
 
-# 2. Install dependencies
+# 2. 安装依赖
 npm install
 
-# 3. Start watch build
+# 3. 启动监听构建
 npm run dev
 
-# 4. Enable the plugin in Obsidian
-# Settings → Community Plugins → obsidian-auto-headings → Enable
+# 4. 在 Obsidian 中启用插件
+# 设置 → 社区插件 → obsidian-auto-headings → 启用
 
-# 5. Run unit tests (no Obsidian runtime required)
+# 5. 运行单元测试（无需 Obsidian 运行时）
 npm test
 ```
 
-> **Hot reload**: Install the [Hot Reload](https://github.com/pjeby/hot-reload) community plugin in your dev vault to automatically reload `obsidian-auto-headings` whenever `main.js` is rebuilt.
+> **热重载**：在开发 Vault 中安装 [Hot Reload](https://github.com/pjeby/hot-reload) 社区插件，每次 `main.js` 重新构建时可自动重载 `obsidian-auto-headings`。

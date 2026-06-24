@@ -1,24 +1,28 @@
 # Addon
 
-My personal vibe-coded Chrome Extensions and Obsidian Plugins.
+个人 vibe coding 项目，包含 Chrome 系浏览器扩展与 Obsidian 插件。
 
-## Naming Convention
+## 命名规范
 
-| Prefix | Category |
-|--------|----------|
-| `chrome-` | Chromium browser extensions (Manifest V3, general Chromium) |
-| `obsidian-` | Obsidian plugins |
+| 前缀 | 类别 |
+|------|------|
+| `chrome-` | Chromium 浏览器扩展（Manifest V3，通用 Chromium） |
+| `obsidian-` | Obsidian 插件 |
 
-## Plugins
+## 国际化
 
-### Chrome Extensions
+所有插件均支持**中文**与**英文**两种界面语言，暂不提供其他语言。
 
-| Directory | Description |
-|-----------|-------------|
-| [`chrome-tab-tree`](./chrome-tab-tree/) | Renders open tabs as a parent-child tree in a Side Panel, optimised for Edge's vertical tab workflow |
+## 插件列表
 
-### Obsidian Plugins
+### Chrome 扩展
 
-| Directory | Description |
-|-----------|-------------|
-| [`obsidian-auto-headings`](./obsidian-auto-headings/) | Automatically numbers headings in Markdown files with fully customisable, per-path templates |
+| 目录 | 描述 |
+|------|------|
+| [`chrome-tab-tree`](./chrome-tab-tree/) | 在侧边面板中将标签页以父子树状结构展示，专为 Edge 竖版标签页工作流优化 |
+
+### Obsidian 插件
+
+| 目录 | 描述 |
+|------|------|
+| [`obsidian-auto-headings`](./obsidian-auto-headings/) | 自动为 Markdown 文件中的标题编号，支持完全自定义的多模板与按路径配置 |
