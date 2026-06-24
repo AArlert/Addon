@@ -43,9 +43,9 @@ Markdown documents — especially long technical notes, meeting records, or acad
 | CR-01 | Detect heading changes after a configurable debounce delay (default 300 ms) and rewrite heading prefixes in the active `.md` file |
 | CR-02 | Numbering is written directly into the file (not injected into the render layer only) |
 | CR-03 | The **first H1** in any file is always exempt from numbering (it is treated as the document title) |
-| CR-04 | Subsequent H1s (if present — non-standard but tolerated) are numbered, treated as top-level numbered sections in the hierarchy |
+| CR-04 | Subsequent H1s (if present — non-standard but tolerated) are **demoted in place**: the `#` marker is rewritten to `##`, and all headings beneath them are shifted down one level accordingly, until the next original H1 (or end of file) |
 | CR-05 | Headings whose trimmed text (after stripping any existing prefix) exactly matches a whitelist entry are left unnumbered |
-| CR-06 | The whitelist supports global entries and per-folder / per-note overrides |
+| CR-06 | The whitelist supports global entries and per-folder / per-note overrides; all configuration lives exclusively in the plugin's settings GUI (no frontmatter) |
 | CR-07 | Each heading level's display format is defined by a **template**; templates are fully user-configurable |
 | CR-08 | Multiple named templates can be defined; a path-matching rule maps each folder (or note) to a template |
 | CR-09 | Internally, the plugin tracks all heading levels using plain Arabic counters; display formats are applied only when writing prefixes to the file |
@@ -56,7 +56,7 @@ Markdown documents — especially long technical notes, meeting records, or acad
 - Render-layer-only (CSS counter) injection — numbering must be visible in raw Markdown
 - Numbering H1 headings that are the first heading in the file
 - Table-of-contents generation (separate concern)
-- Automatic heading level correction (e.g. promoting H4 to H3)
+- Any configuration via YAML frontmatter (intentionally excluded to keep notes clean)
 - Multi-file batch renumbering (post-MVP)
 - Git-aware change minimisation (post-MVP)
 
@@ -67,7 +67,7 @@ Markdown documents — especially long technical notes, meeting records, or acad
 | File has no H2+ headings | Plugin writes nothing; file is untouched |
 | Heading is on the whitelist AND has children | The whitelisted heading is skipped (no prefix), but its counter slot is still consumed so that sibling numbering remains correct |
 | User manually edits a heading prefix | The next debounce cycle rewrites it to the correct value; manual edits to prefixes are intentionally overwritten |
-| Multiple H1s | First H1: no number. H2–H6 between the first and second H1: numbered normally. Second H1 onward: numbered as top-level sections (counter continues from where it was) |
+| Multiple H1s | First H1: no number, not demoted. Each subsequent H1: its `#` is rewritten to `##`, and all headings within its subtree are shifted down one level (H2→H3, H3→H4, etc.) until the next original H1 or end of file |
 | Nested heading skips a level (H2 → H4) | Plugin numbers what is present; missing intermediate levels are simply not instantiated |
 | Whitelist entry contains leading/trailing spaces | Matched after `trim()` on both sides |
 | Per-note config and per-folder config both match | Per-note wins (most-specific-wins) |
@@ -90,86 +90,115 @@ The plugin uses Obsidian's `Editor` API to read and rewrite heading lines. On ea
 
 ### 3.2 H1 Handling Rules
 
-```
-Line-by-line scan order:
+The plugin performs a **two-pass** process:
 
-1. First encountered `# ` heading → mark as "document title", no prefix, no counter.
-2. Any subsequent `# ` heading → treated as a numbered top-level section.
-   Counter used: the level-1 counter (same counter used if H2 were at the top level).
-   Display format: the template's entry for "h1_subsequent" (user-configurable,
-   defaults to the same format as h2 if not set separately).
+**Pass 1 — H1 demotion (structural rewrite):**
+
 ```
+Scan the file top-to-bottom:
+
+1. First `# ` heading encountered → "document title".
+   Action: leave the `#` as-is; mark it as exempt (no prefix, no counter).
+
+2. Each subsequent `# ` heading → "misplaced H1".
+   Action: rewrite the `#` marker to `##` in the file.
+   All headings within its subtree (until the next original `# ` or EOF)
+   are shifted down one level:
+     ##  → ###
+     ### → ####
+     ... and so on.
+
+Example (original → after demotion):
+
+  # My Document          →  # My Document          (title, untouched)
+  ## Section A           →  ## Section A
+  ### Detail             →  ### Detail
+  ### Detail             →  ### Detail
+  # Appendix             →  ## Appendix             (demoted)
+  ## Sub                 →  ### Sub                 (shifted)
+```
+
+**Pass 2 — Numbering:**
+After structural rewriting, the file is re-parsed and numbered as if it had no H1s beyond the document title. All subsequent logic operates on the post-demotion heading levels.
 
 ### 3.3 Internal Numbering Model
 
-The plugin maintains an array of integer counters `[c1, c2, c3, c4, c5, c6]`, one per heading level H1–H6.
+The plugin maintains an array of integer counters `[c2, c3, c4, c5, c6]`, one per heading level H2–H6 (H1 is the document title and is never counted).
 
 Rules:
 - When a heading at level *n* is encountered, `c[n]` is incremented and all counters for levels *> n* are reset to 0.
-- The counter array is independent of the display format; display format is applied afterwards.
-- The first H1 does not touch any counter.
+- The counter array is **independent of display format**; format conversion is applied only at write time.
+- Whitelisted headings do **not** skip their counter slot — the counter increments normally, but no prefix is written to the file.
+- All arithmetic uses plain Arabic integers internally, regardless of what symbol style the template specifies.
 
-**Example (using the default template for illustration):**
+**Example — internal counter state vs. written output:**
 
 ```
-# Introduction          → title, skip        counters: [0,0,0,0,0,0]
-## Background           → c[2]=1             display: "一、"
-## Methods              → c[2]=2             display: "二、"
-### Setup               → c[3]=1             display: "1.1 "   (c[2]=2 → "2", but remapped)
-### Execution           → c[3]=2             display: "1.2 "
-#### Step A             → c[4]=1             display: "a) "
-## Results              → c[2]=3, c[3..]=0   display: "三、"
-### Table               → c[3]=1, whitelisted → no prefix (counter still increments)
-### Analysis            → c[3]=2             display: "3.2 "
+Internal tracking (pure Arabic)    Written to file (template applied)
+──────────────────────────────    ──────────────────────────────────
+H2 → c2=1                    →    一、
+H3 → c3=1                    →    1.1
+H3 → c3=2                    →    1.2
+H4 → c4=1                    →    a)
+H2 → c2=2, c3..=0            →    二、
+H3 → c3=1 (whitelisted)      →    (no prefix written; counter still = 1)
+H3 → c3=2                    →    2.2
+H4 → c4=1                    →    a)
 ```
 
-> **Remapping**: Each level's display format receives only that level's own counter value, not a concatenation of parent counters. If H3 format is `"{parent}.{n} "`, the plugin resolves `{parent}` as the current H2 counter value (already remapped to Arabic). This allows formats like `"2.3 "` even when H2 is displayed as `"二、"`.
+> **Cross-level variable resolution**: When a format string references a parent level (e.g. `{p2}` in an H3 format), the plugin substitutes the current `c2` value as a plain Arabic numeral, regardless of how H2 itself is displayed. This is what allows `1.1`, `1.2`, `2.2` etc. while H2 shows `一、`, `二、`.
 
 ### 3.4 Template System
 
-A **template** is a named JSON object that maps each heading level to a format descriptor.
+A **template** is a named configuration object that maps each heading level to a format string. Templates are created and edited exclusively in the plugin's **Settings GUI** — no YAML or frontmatter involved.
 
-**Template schema:**
+**Template schema (internal representation stored in `data.json`):**
 
 ```jsonc
 {
-  "name": "academic",        // unique template identifier
+  "name": "academic",        // unique template identifier shown in GUI dropdowns
   "levels": {
-    "h1_subsequent": { "format": "{n}. ",       "style": "arabic" },
-    "h2":            { "format": "{cn}、",       "style": "chinese_upper" },
-    "h3":            { "format": "{p2}.{n} ",   "style": "arabic" },
-    "h4":            { "format": "{alpha}) ",   "style": "alpha_lower" },
-    "h5":            { "format": "({alpha}) ",  "style": "alpha_lower" },
-    "h6":            { "format": "{n}. ",       "style": "arabic" }
+    "h2": { "format": "{cn}、" },
+    "h3": { "format": "{p2}.{n} " },
+    "h4": { "format": "{alpha}) " },
+    "h5": { "format": "({alpha}) " },
+    "h6": { "format": "{n}. " }
   }
 }
 ```
 
-**Format variables:**
+**Format variables (usable inside any format string):**
 
 | Variable | Meaning |
 |----------|---------|
-| `{n}` | This level's counter, rendered in the level's own `style` |
-| `{p2}` … `{p6}` | Parent level counter value, rendered in Arabic (for cross-level concatenation) |
-| `{cn}` | This level's counter in Chinese upper-case numerals (一二三…) |
-| `{alpha}` | This level's counter as a lowercase letter (a, b, c, … z, aa, ab, …) |
-| `{Alpha}` | Uppercase letter variant |
-| `{roman}` | Lowercase Roman numeral |
-| `{Roman}` | Uppercase Roman numeral |
+| `{n}` | This level's own counter, rendered in Arabic numerals |
+| `{cn}` | This level's counter in Chinese upper-case numerals (一、二、三…) |
+| `{CN}` | This level's counter in Chinese lower-case numerals (same glyphs; reserved for future distinction) |
+| `{alpha}` | This level's counter as a lowercase letter (a, b, … z, aa, ab, …) |
+| `{Alpha}` | Uppercase letter variant (A, B, … Z, AA, …) |
+| `{roman}` | Lowercase Roman numeral (i, ii, iii, …) |
+| `{Roman}` | Uppercase Roman numeral (I, II, III, …) |
+| `{p2}` … `{p5}` | Counter value of the specified parent level, always in Arabic (for cross-level concatenation, e.g. `{p2}.{n}` → `2.3`) |
 
-**Built-in styles:**
+A **default template** is always present and cannot be deleted; it can be edited. Additional named templates can be created, duplicated, renamed, and deleted — all within the Settings GUI. Template names appear in a dropdown wherever a path rule needs to reference a template.
 
-| Style key | Example output |
-|-----------|---------------|
-| `arabic` | 1, 2, 3 |
-| `chinese_upper` | 一, 二, 三 |
-| `chinese_lower` | 一, 二, 三 (same glyphs, reserved for distinction) |
-| `alpha_lower` | a, b, c |
-| `alpha_upper` | A, B, C |
-| `roman_lower` | i, ii, iii |
-| `roman_upper` | I, II, III |
+**Settings GUI layout for templates:**
 
-A **default template** is always present and cannot be deleted; it can be edited. Additional named templates can be created, duplicated, and deleted.
+```
+┌─ Templates ─────────────────────────────────────────────────────────┐
+│  [+ New template]  [Duplicate]  [Delete]                            │
+│                                                                     │
+│  Template name: [ academic          ▼ ]                             │
+│                                                                     │
+│  Level │ Format string  │ Preview                                   │
+│  ──────┼────────────────┼─────────                                  │
+│  H2    │ {cn}、         │ 一、 二、 三、                            │
+│  H3    │ {p2}.{n}       │ 1.1  1.2  2.1                            │
+│  H4    │ {alpha})       │ a)  b)  c)                                │
+│  H5    │ ({alpha})      │ (a)  (b)                                  │
+│  H6    │ {n}.           │ 1.  2.                                    │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ### 3.5 Whitelist System
 
@@ -189,43 +218,43 @@ Appendix
 ```
 Resolution order (most specific wins):
 
-1. Per-note whitelist   (defined in the note's frontmatter or in settings for that path)
-2. Per-folder whitelist (defined in settings for the closest ancestor folder)
-3. Global whitelist     (defined in plugin settings)
+1. Per-note rule     (path rule matching the exact file path, set in Settings GUI)
+2. Per-folder rule   (path rule matching the closest ancestor folder, set in Settings GUI)
+3. Global default    (the fallback template + whitelist, set in Settings GUI)
 
-Merge strategy: the resolved whitelist is the UNION of all matching scopes,
-unless a scope explicitly sets `override: true`, in which case only that
-scope's list is used (no union with broader scopes).
+Merge strategy for whitelists: the resolved whitelist is the UNION of all matching
+scopes, unless a scope is configured with "override: true" in the GUI, in which
+case only that scope's whitelist is used.
 ```
 
-**Frontmatter integration (per-note):**
-
-```yaml
----
-auto-headings:
-  whitelist: ["Introduction", "Summary"]
-  whitelist-override: false   # false = union with folder/global; true = replace
-  template: "legal"           # override template for this note
----
-```
+> **No frontmatter.** All configuration — templates, whitelists, path rules, per-note overrides — is managed exclusively through the plugin's Settings GUI. Frontmatter in notes is never read or written by this plugin.
 
 ### 3.6 Per-Path Configuration
 
-In plugin settings, users define **path rules** — an ordered list of glob-style path patterns mapping to a template name and optional whitelist overrides:
+All path rules are managed in the plugin's **Settings GUI** — a visual table where each row maps a path pattern to a template (chosen from a dropdown of defined templates) and an optional local whitelist.
 
-```jsonc
-[
-  { "path": "**",                "template": "default"  },   // global fallback
-  { "path": "Projects/**",       "template": "technical" },
-  { "path": "Reading Notes/**",  "template": "academic"  },
-  { "path": "Reading Notes/Deep Work.md", "template": "minimal" }
-]
+**GUI layout:**
+
+```
+┌─ Path Rules ────────────────────────────────────────────────────────┐
+│  [+ Add rule]                                                       │
+│                                                                     │
+│  #  │ Path pattern              │ Template       │ Whitelist        │
+│  ───┼───────────────────────────┼────────────────┼──────────────    │
+│  1  │ **                        │ [default    ▼] │ [Edit…]          │
+│  2  │ Projects/**               │ [technical  ▼] │ [Edit…]          │
+│  3  │ Reading Notes/**          │ [academic   ▼] │ [Edit…]          │
+│  4  │ Reading Notes/Deep Work…  │ [minimal    ▼] │ [Edit…]          │
+│                                 ↑ drag to reorder                   │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-Resolution:
-1. All matching rules are collected.
-2. The **most specific match** wins (exact file path > folder glob > `**`).
-3. Tie-breaking: the rule listed **last** in the config wins (allows easy overriding by appending new rules).
+**Resolution logic:**
+
+1. All rules whose path pattern matches the active file are collected.
+2. The **most specific match** wins (exact file path > longest folder prefix > `**`).
+3. Tie-breaking: the rule with the **higher row number** (lower in the list) wins, allowing overrides by adding rules at the bottom.
+4. If no rule matches, the built-in system default is used.
 
 ### 3.7 Trigger & Debounce
 
@@ -296,24 +325,24 @@ settings/
 
 ### Milestone 2 — Write-to-File & Debounce
 - [ ] Editor onChange listener with per-file debounce timer
+- [ ] Two-pass rewrite: H1 demotion (structural), then numbering
 - [ ] Whole-file rewrite in a single editor transaction
 - [ ] H1 title-skip rule
-- [ ] Subsequent H1 numbering
 - [ ] Manual "Renumber now" command
 
 ### Milestone 3 — Template System
 - [ ] Template schema definition and validation
-- [ ] Format variable resolution (`{n}`, `{p2}`, `{cn}`, `{alpha}`, `{roman}`, etc.)
-- [ ] Built-in style renderers (Arabic, Chinese, alpha, Roman)
+- [ ] Format variable resolution (`{n}`, `{cn}`, `{alpha}`, `{roman}`, `{p2}`…`{p5}`)
+- [ ] Built-in symbol renderers (Arabic, Chinese, alpha, Roman)
 - [ ] Default template pre-populated
-- [ ] Template CRUD in settings UI
+- [ ] Template CRUD in settings GUI (name, per-level format strings, live preview row)
 
 ### Milestone 4 — Whitelist System
-- [ ] Global whitelist (exact match, trim)
-- [ ] Whitelist check integrated into numbering cycle (counter still increments)
-- [ ] Whitelist editor in settings UI
-- [ ] Per-note whitelist via frontmatter (`auto-headings.whitelist`)
-- [ ] Whitelist merge / override logic
+- [ ] Global whitelist (exact match after trim)
+- [ ] Whitelist check integrated into numbering cycle (counter increments; prefix suppressed)
+- [ ] Whitelist editor in settings GUI (add / remove entries; union vs. override toggle)
+- [ ] Per-folder whitelist configurable in path rule row
+- [ ] Whitelist merge / override resolution logic
 
 ### Milestone 5 — Per-Path Configuration
 - [ ] Path rule store (glob matching, specificity resolution)
