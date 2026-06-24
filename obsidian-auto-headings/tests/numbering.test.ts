@@ -4,6 +4,7 @@ import {
 	DEFAULT_TEMPLATE,
 	HeadingCounter,
 	buildPrefix,
+	demoteStrayH1s,
 	numberHeadings,
 	renderNumeral,
 	renumberContent,
@@ -173,6 +174,81 @@ describe("numberHeadings", () => {
 		const isWhitelisted = (h: Heading) => h.text === "白名单节";
 		const result = numberHeadings(headingsOf(content), DEFAULT_TEMPLATE, { isWhitelisted });
 		expect(result.map((h) => h.prefix)).toEqual([null, "1 ", null, "1.1 "]);
+	});
+});
+
+describe("demoteStrayH1s", () => {
+	it("首个 H1 不变；无错位 H1 时内容原样", () => {
+		const content = ["# 文档", "## 章", "### 节"].join("\n");
+		expect(demoteStrayH1s(content, "live")).toBe(content);
+		expect(demoteStrayH1s(content, "format")).toBe(content);
+	});
+
+	it("实时模式：错位 H1 仅改本行，不触动子树", () => {
+		const content = ["# 我的文档", "## 第一章", "# 附录", "## 小节"].join("\n");
+		const expected = ["# 我的文档", "## 第一章", "## 附录", "## 小节"].join("\n");
+		expect(demoteStrayH1s(content, "live")).toBe(expected);
+	});
+
+	it("格式化模式：错位 H1 级联降级，子树整体下移一级", () => {
+		// 对应 README 3.4 示例。
+		const content = [
+			"# 我的文档",
+			"## 第一章",
+			"### 细节",
+			"### 细节",
+			"# 附录",
+			"## 小节",
+		].join("\n");
+		const expected = [
+			"# 我的文档",
+			"## 第一章",
+			"### 细节",
+			"### 细节",
+			"## 附录",
+			"### 小节",
+		].join("\n");
+		expect(demoteStrayH1s(content, "format")).toBe(expected);
+	});
+
+	it("格式化模式：多个错位 H1，各自子树均下移一级", () => {
+		const content = ["# 文档", "## A", "# 错位一", "## B", "# 错位二", "## C"].join("\n");
+		const expected = ["# 文档", "## A", "## 错位一", "### B", "## 错位二", "### C"].join("\n");
+		expect(demoteStrayH1s(content, "format")).toBe(expected);
+	});
+
+	it("格式化模式：降级封顶 H6（H6 子树不溢出为 7 个 #）", () => {
+		const content = ["# 文档", "# 错位", "###### 深节"].join("\n");
+		const expected = ["# 文档", "## 错位", "###### 深节"].join("\n");
+		expect(demoteStrayH1s(content, "format")).toBe(expected);
+	});
+
+	it("不触动代码块内的 # 行", () => {
+		const content = ["# 文档", "# 错位", "```", "# 注释", "```"].join("\n");
+		const expected = ["# 文档", "## 错位", "```", "# 注释", "```"].join("\n");
+		expect(demoteStrayH1s(content, "format")).toBe(expected);
+	});
+});
+
+describe("renumberContent 的 H1 双模式", () => {
+	it("实时模式：错位 H1 改为 H2 并参与编号，子树不级联", () => {
+		const content = ["# 我的文档", "## 第一章", "# 附录", "## 小节"].join("\n");
+		// 附录 → ## 编号为 2；其原子树 ## 小节仍是 H2，编号为 3（实时不级联）。
+		const expected = ["# 我的文档", "## 1 第一章", "## 2 附录", "## 3 小节"].join("\n");
+		expect(renumberContent(content, DEFAULT_TEMPLATE, { mode: "live" })).toBe(expected);
+	});
+
+	it("格式化模式：错位 H1 级联降级后再编号", () => {
+		const content = ["# 我的文档", "## 第一章", "# 附录", "## 小节"].join("\n");
+		// 附录 → ## 编号 2；小节级联为 ### 编号 2.1。
+		const expected = ["# 我的文档", "## 1 第一章", "## 2 附录", "### 2.1 小节"].join("\n");
+		expect(renumberContent(content, DEFAULT_TEMPLATE, { mode: "format" })).toBe(expected);
+	});
+
+	it("缺省模式为实时模式", () => {
+		const content = ["# 文档", "# 错位", "## 子"].join("\n");
+		const live = renumberContent(content, DEFAULT_TEMPLATE, { mode: "live" });
+		expect(renumberContent(content)).toBe(live);
 	});
 });
 

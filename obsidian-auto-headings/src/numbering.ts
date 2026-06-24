@@ -14,6 +14,14 @@
 
 import { Heading, parseHeadings } from "./parser";
 
+/**
+ * 重新编号的触发模式，决定后续错位 H1 的处理方式（见 README 3.4）。
+ * - `live`（实时编辑，防抖自动触发）：错位 H1 仅将本行 `#` 改写为 `##`，**不**触动子树。
+ * - `format`（「立即重新编号」命令）：错位 H1 级联降级——`#`→`##` 且其下属标题
+ *   层级整体下移一级，直至下一个原始 H1 或文件末尾。
+ */
+export type RenumberMode = "live" | "format";
+
 /** 序号样式枚举（见 README 3.6）。 */
 export type NumeralStyle = "arabic" | "cjk" | "circled" | "lower-alpha" | "upper-alpha";
 
@@ -273,6 +281,61 @@ export interface NumberedHeading {
 	numberedLine: string;
 }
 
+/**
+ * 将一行标题的 `#` 数量改写为 `newLevel`，其余内容（标题文本与原有空白）原样保留。
+ * 仅替换行首连续的 `#`，因此 `## 小节` → `### 小节`、`# 附录` → `## 附录`。
+ */
+function rewriteHeadingLevel(line: string, newLevel: number): string {
+	return line.replace(/^#+/, "#".repeat(newLevel));
+}
+
+/**
+ * 处理文件中多个 H1（错位 H1）的结构改写，返回改写后的完整内容（见 README 3.4）。
+ *
+ * 规则：
+ * - 第一个 H1 始终视为「文档标题」，保留 `#` 不变。
+ * - `live` 模式：此后每个错位 H1 仅将本行 `#` 改写为 `##`，**不**触动其子树。
+ * - `format` 模式：自第二个 H1 起（含其本身）直至文件末尾，所有标题层级整体下移一级
+ *   （`#`→`##`、`##`→`###`…，封顶 H6）。由于每个错位 H1 的「子树范围」恰好衔接到下一个
+ *   原始 H1，故等价于「第二个 H1 及其后的全部标题各 +1 级」。
+ *
+ * 仅改写被识别为标题的行（围栏代码块内的 `#` 行由解析器忽略，不受影响）。
+ */
+export function demoteStrayH1s(content: string, mode: RenumberMode): string {
+	const headings = parseHeadings(content);
+	const lines = content.split("\n");
+
+	let firstH1Seen = false;
+	let cascadeFromLine = -1; // format 模式下，自该行起的所有标题各下移一级。
+
+	for (const h of headings) {
+		if (h.level !== 1) {
+			continue;
+		}
+		if (!firstH1Seen) {
+			firstH1Seen = true;
+			continue; // 文档标题，保留不变。
+		}
+		// 错位 H1。
+		if (mode === "live") {
+			lines[h.lineIndex] = rewriteHeadingLevel(lines[h.lineIndex], 2);
+		} else if (cascadeFromLine === -1) {
+			cascadeFromLine = h.lineIndex; // 记录第一个错位 H1 的行，触发级联。
+		}
+	}
+
+	if (mode === "format" && cascadeFromLine !== -1) {
+		for (const h of headings) {
+			if (h.lineIndex >= cascadeFromLine) {
+				const newLevel = Math.min(h.level + 1, 6);
+				lines[h.lineIndex] = rewriteHeadingLevel(lines[h.lineIndex], newLevel);
+			}
+		}
+	}
+
+	return lines.join("\n");
+}
+
 /** {@link numberHeadings} / {@link renumberContent} 的可选项。 */
 export interface NumberOptions {
 	/**
@@ -281,6 +344,10 @@ export interface NumberOptions {
 	 * 通过该回调注入，以便单元测试验证「不占槽位」的计数行为。默认无白名单。
 	 */
 	isWhitelisted?: (heading: Heading) => boolean;
+	/**
+	 * 触发模式，决定错位 H1 的降级方式（见 {@link RenumberMode}）。默认 `live`。
+	 */
+	mode?: RenumberMode;
 }
 
 /**
@@ -338,19 +405,25 @@ export function numberHeadings(
 /**
  * 解析整篇文档、重新编号所有 H2–H6 标题，并返回重写后的完整内容。
  *
- * 仅替换被识别为标题的行，其余行（含代码块、正文）原样保留；行尾换行风格沿用原文。
- * 这是 Milestone 1「应用单一硬编码模板验证输出正确性」的入口；真正写回编辑器的
- * 事务化操作在 Milestone 2 实现。
+ * 处理流程（见 README 3.3 / 3.4）：
+ * 1. 先按触发模式对错位 H1 做结构改写（{@link demoteStrayH1s}）。
+ * 2. 重新解析改写后的内容，视其为不含第二个 H1 的标准文件进行编号。
+ * 3. 仅替换被识别为标题的行，其余行（含代码块、正文）原样保留。
+ *
+ * 触发模式由 `options.mode` 指定（默认 `live`）。真正写回编辑器的事务化操作在 main.ts。
  */
 export function renumberContent(
 	content: string,
 	template: Template = DEFAULT_TEMPLATE,
 	options: NumberOptions = {},
 ): string {
-	const headings = parseHeadings(content);
+	const mode = options.mode ?? "live";
+	const demoted = demoteStrayH1s(content, mode);
+
+	const headings = parseHeadings(demoted);
 	const numbered = numberHeadings(headings, template, options);
 
-	const lines = content.split("\n");
+	const lines = demoted.split("\n");
 	for (const h of numbered) {
 		lines[h.lineIndex] = h.numberedLine;
 	}
