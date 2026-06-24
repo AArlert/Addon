@@ -61,8 +61,33 @@ describe("renderNumeral", () => {
 		expect(renderNumeral("arabic", 42)).toBe("42");
 	});
 
-	it("非阿拉伯样式在本里程碑尚未实现", () => {
-		expect(() => renderNumeral("cjk", 1)).toThrow();
+	it("渲染中文数字（含十位规范化与大节单位）", () => {
+		expect(renderNumeral("cjk", 1)).toBe("一");
+		expect(renderNumeral("cjk", 10)).toBe("十");
+		expect(renderNumeral("cjk", 11)).toBe("十一");
+		expect(renderNumeral("cjk", 20)).toBe("二十");
+		expect(renderNumeral("cjk", 105)).toBe("一百零五");
+		expect(renderNumeral("cjk", 110)).toBe("一百一十");
+		expect(renderNumeral("cjk", 1024)).toBe("一千零二十四");
+		expect(renderNumeral("cjk", 10000)).toBe("一万");
+		expect(renderNumeral("cjk", 10005)).toBe("一万零五");
+	});
+
+	it("渲染带圈数字（含跨区段与超界回退）", () => {
+		expect(renderNumeral("circled", 1)).toBe("①");
+		expect(renderNumeral("circled", 20)).toBe("⑳");
+		expect(renderNumeral("circled", 21)).toBe("㉑");
+		expect(renderNumeral("circled", 50)).toBe("㊿");
+		expect(renderNumeral("circled", 51)).toBe("(51)");
+	});
+
+	it("渲染双射 26 进制字母序列", () => {
+		expect(renderNumeral("lower-alpha", 1)).toBe("a");
+		expect(renderNumeral("lower-alpha", 26)).toBe("z");
+		expect(renderNumeral("lower-alpha", 27)).toBe("aa");
+		expect(renderNumeral("lower-alpha", 28)).toBe("ab");
+		expect(renderNumeral("upper-alpha", 1)).toBe("A");
+		expect(renderNumeral("upper-alpha", 52)).toBe("AZ");
 	});
 });
 

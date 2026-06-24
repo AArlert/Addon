@@ -9,18 +9,25 @@ import {
 import { AutoHeadingsSettings, DEFAULT_SETTINGS, clampDebounceDelay } from "./settings";
 import { AutoHeadingsSettingTab } from "./settings/SettingsTab";
 import { isDisabledByFrontmatter } from "./frontmatter";
-import { DEFAULT_TEMPLATE, RenumberMode, renumberContent } from "./numbering";
+import { RenumberMode, renumberContent, type Template } from "./numbering";
+import { TemplateStore } from "./templates/TemplateStore";
 
 /**
  * obsidian-auto-headings 插件入口。
  *
  * Milestone 2：editor onChange 监听 + 各文件防抖计时器；H1 双模式降级；以单一事务
  * 整文件重写回编辑器；「立即重新编号」命令（格式化模式）；面板全局开关 ↔ 全局命令
- * 双向同步；读取 frontmatter 单文件开关。模板系统仍使用内置硬编码默认模板
- * （DEFAULT_TEMPLATE），完整模板/白名单/路径配置见后续里程碑。
+ * 双向同步；读取 frontmatter 单文件开关。
+ *
+ * Milestone 3：接入 {@link TemplateStore}（首次启用自动创建 templates/default.json）；
+ * 编号改用 {@link getActiveTemplate} 返回的全局默认模板（GUI 编辑即时生效）。
+ * 白名单匹配（M4）与按路径选模板（M5）见后续里程碑。
  */
 export default class AutoHeadingsPlugin extends Plugin {
 	settings: AutoHeadingsSettings = { ...DEFAULT_SETTINGS };
+
+	/** 模板存储：读写 templates/*.json，首次启用时自动创建目录与默认模板。 */
+	templateStore!: TemplateStore;
 
 	private settingTab!: AutoHeadingsSettingTab;
 
@@ -29,6 +36,12 @@ export default class AutoHeadingsPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
+
+		// 初始化模板存储：确保 templates/ 目录与 default.json 存在并载入全部模板。
+		const pluginDir =
+			this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+		this.templateStore = new TemplateStore(this.app.vault.adapter, pluginDir);
+		await this.templateStore.init();
 
 		this.settingTab = new AutoHeadingsSettingTab(this.app, this);
 		this.addSettingTab(this.settingTab);
@@ -77,6 +90,28 @@ export default class AutoHeadingsPlugin extends Plugin {
 		await this.saveSettings();
 		// 若设置面板当前打开，刷新以反映最新状态。
 		this.settingTab.display();
+	}
+
+	/**
+	 * 返回当前用于编号的模板。
+	 *
+	 * Milestone 3 暂以全局默认模板（「默认」）作用于所有文件；按路径选用不同模板的
+	 * 解析逻辑在 Milestone 5 加入。在 GUI 中编辑「默认」模板会即时改变编号行为。
+	 */
+	getActiveTemplate(): Template {
+		return this.templateStore.getDefault();
+	}
+
+	/**
+	 * 重命名模板，并同步更新 `data.json` 中引用该模板名的路径规则（路径规则见
+	 * Milestone 5；当前尚无规则，故仅做模板文件改名）。
+	 *
+	 * @returns 重命名是否成功（名称冲突、为空或为默认模板时失败）。
+	 */
+	async renameTemplate(oldName: string, newName: string): Promise<boolean> {
+		const ok = await this.templateStore.rename(oldName, newName);
+		// 路径规则引用的同步更新预留给 Milestone 5（届时遍历 settings 中的规则改名）。
+		return ok;
 	}
 
 	async loadSettings(): Promise<void> {
@@ -161,7 +196,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 			return false;
 		}
 
-		const newContent = renumberContent(oldContent, DEFAULT_TEMPLATE, { mode });
+		const newContent = renumberContent(oldContent, this.getActiveTemplate(), { mode });
 		if (newContent === oldContent) {
 			return false;
 		}

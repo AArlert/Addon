@@ -504,14 +504,14 @@ settings/
 - [x] 读取 frontmatter 单文件开关 `obsidian-auto-headings`（ON/OFF，大小写敏感，非法值忽略）
 
 ### Milestone 3 — 模板系统
-- [ ] 模板 schema 定义与校验（结构化字段：prefix / numeral / numberSeparator / titleSeparator / inherit）
-- [ ] 首次启用插件时自动创建 `templates/` 目录并写入 `default.json`（使用 `app.vault.adapter`）
-- [ ] 序号渲染器（arabic / cjk / circled / lower-alpha / upper-alpha）
-- [ ] 序号间隔符跨级拼接 + 标题间隔符拼装
-- [ ] 「继承前级」字段（默认开启，可关闭；关闭后该级不拼父级序号，如 H5 输出 `a)`、`b)`）
-- [ ] 设置 GUI 中的模板增删（[+ 新增模板] / [删除]）
-- [ ] 所有模板行内可展开编辑面板（右侧 [编辑] 按钮，向下展开，五级×五列〔含继承前级〕 + 实时预览）
-- [ ] 重命名模板时自动更新文件名及 `data.json` 中的路径规则引用
+- [x] 模板 schema 定义与校验（结构化字段：prefix / numeral / numberSeparator / titleSeparator / inherit）
+- [x] 首次启用插件时自动创建 `templates/` 目录并写入 `default.json`（使用 `app.vault.adapter`）
+- [x] 序号渲染器（arabic / cjk / circled / lower-alpha / upper-alpha）
+- [x] 序号间隔符跨级拼接 + 标题间隔符拼装
+- [x] 「继承前级」字段（默认开启，可关闭；关闭后该级不拼父级序号，如 H5 输出 `a)`、`b)`）
+- [x] 设置 GUI 中的模板增删（[+ 新增模板] / [删除]）
+- [x] 所有模板行内可展开编辑面板（右侧 [编辑] 按钮，向下展开，五级×五列〔含继承前级〕 + 实时预览）
+- [x] 重命名模板时自动更新文件名（`data.json` 路径规则引用的同步留待 M5 接入）
 
 ### Milestone 4 — 白名单系统（模板级）
 - [ ] 模板内白名单字段（条目含词语 + 匹配方式：全部 `exact` / 部分 `partial` / 子树 `subtree`，双侧 trim）
