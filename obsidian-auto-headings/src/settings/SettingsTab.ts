@@ -38,6 +38,12 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
+		// —— 版本号（右上角，低调但清晰）——
+		containerEl.createDiv({
+			cls: "ah-version",
+			text: `v${this.plugin.manifest.version}`,
+		});
+
 		// —— 全局开关 ——
 		new Setting(containerEl)
 			.setName("启用自动编号")

@@ -322,12 +322,12 @@ export function buildPrefix(template: Template, level: number, counter: HeadingC
 			const segLevel = i + 2;
 			const segFmt = getLevelFormat(template, segLevel) ?? fmt;
 			// 标题层级跳跃（如 H3 → H5）时，缺失的中间级别计数器值为 0、从未实例化。
-			// 计数器是 1 基的（不存在「第 0 节」），故缺失的中间祖先按其级别样式的「1」
-			// 呈现，使 H_n 的序号始终保有 (n−1) 段、与标题实际深度一致（H5→四段而非三段）。
+			// 这里**如实呈现该 0**（默认阿拉伯样式即 `0`），使 H_n 的序号始终保有 (n−1) 段、
+			// 与标题实际深度一致（H5 → 四段而非三段），同时以 `0` 显式区别于「真实存在的该级
+			// 标题=1」：故 H3 后直接跟的 H5 为 `1.1.0.1`，而非会与真实 H4 混淆的 `1.1.1.1`。
 			// 该级计数器本身仍保持 0，直到真正出现该级标题才从 1 开始累加——因此后续真实的
-			// 该级标题不会被借号（如 H3→H5 在前，随后首个真实 H4 仍为 `…1` 而非 `…2`）。
-			const display = value === 0 ? 1 : value;
-			parts.push(renderNumeral(segFmt.numeral, display));
+			// 该级标题不会被借号（如 H3→H5 在前，随后首个真实 H4 仍为 `…1.1` 而非 `…1.2`）。
+			parts.push(renderNumeral(segFmt.numeral, value));
 		});
 		numberStr = parts.join(fmt.numberSeparator);
 	} else {

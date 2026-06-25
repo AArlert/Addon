@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseHeadings } from "../src/parser";
+import { parseHeadings } from "../../src/parser";
 
 describe("parseHeadings", () => {
 	it("识别各级标题及其级别", () => {

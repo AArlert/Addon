@@ -6,7 +6,7 @@ import {
 	normalizeTemplate,
 	serializeTemplate,
 	templateFileName,
-} from "../src/templates/schema";
+} from "../../src/templates/schema";
 
 describe("normalizeTemplate", () => {
 	it("空对象回退为合法的默认结构", () => {

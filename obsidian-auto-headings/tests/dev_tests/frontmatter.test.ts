@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDisabledByFrontmatter, readFileSwitch } from "../src/frontmatter";
+import { isDisabledByFrontmatter, readFileSwitch } from "../../src/frontmatter";
 
 function withFrontmatter(value: string): string {
 	return ["---", `obsidian-auto-headings: ${value}`, "---", "# 文档", "## 章"].join("\n");

@@ -6,3 +6,4 @@ dist/
 package-lock.json
 doc/
 release/
+tests/user_tests/

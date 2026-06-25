@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseHeadings, type Heading } from "../src/parser";
+import { parseHeadings, type Heading } from "../../src/parser";
 import {
 	DEFAULT_TEMPLATE,
 	HeadingCounter,
@@ -10,7 +10,7 @@ import {
 	renumberContent,
 	stripPrefix,
 	type Template,
-} from "../src/numbering";
+} from "../../src/numbering";
 
 describe("HeadingCounter", () => {
 	it("同级标题依次累加", () => {
@@ -469,25 +469,26 @@ describe("renumberContent", () => {
 	it("处理标题层级跳跃（H2 → H4）", () => {
 		const content = ["## 章", "#### 跳级"].join("\n");
 		const result = renumberContent(content);
-		// H4 直接出现：缺失的 H3（c3=0）按「1」呈现，使 H4 保有三段、与其深度一致，
-		// 故为 1.1.1 而非把 H4 当 H3 的 1.1（缺失祖先以 1 占位，避免幻影 0）。
-		expect(result).toBe(["## 1 章", "#### 1.1.1 跳级"].join("\n"));
+		// H4 直接出现：缺失的 H3（c3=0）如实以「0」呈现，使 H4 保有三段、与其深度一致，
+		// 故为 1.0.1 而非把 H4 当 H3 的 1.1（缺失祖先以 0 显式占位）。
+		expect(result).toBe(["## 1 章", "#### 1.0.1 跳级"].join("\n"));
 	});
 
-	it("H3 后直接跟 H5：H5 保有四段而非被当作 H4（缺失 H4 以 1 占位）", () => {
+	it("H3 后直接跟 H5：H5 保有四段而非被当作 H4（缺失 H4 以 0 占位）", () => {
 		const content = ["## 章", "### 节", "##### 细目甲", "##### 细目乙"].join("\n");
 		const result = renumberContent(content);
 		expect(result).toBe(
-			["## 1 章", "### 1.1 节", "##### 1.1.1.1 细目甲", "##### 1.1.1.2 细目乙"].join("\n"),
+			["## 1 章", "### 1.1 节", "##### 1.1.0.1 细目甲", "##### 1.1.0.2 细目乙"].join("\n"),
 		);
 	});
 
-	it("跳级 H5 在前、随后真实 H4 仍从 1 开始（占位不借号）", () => {
+	it("跳级 H5 在前、随后真实 H4 仍从 1 开始（0 占位不借号）", () => {
 		const content = ["## 章", "### 节", "##### 细目", "#### 子节"].join("\n");
 		const result = renumberContent(content);
-		// 跳级的 H5 把缺失 H4 以 1 占位呈现，但 c4 仍为 0；首个真实 H4 才把 c4 累加到 1。
+		// 跳级的 H5 把缺失 H4 以 0 占位呈现，但 c4 仍为 0；首个真实 H4 才把 c4 累加到 1，
+		// 故为 1.1.1（而非被借号成 1.1.2）。
 		expect(result).toBe(
-			["## 1 章", "### 1.1 节", "##### 1.1.1.1 细目", "#### 1.1.1 子节"].join("\n"),
+			["## 1 章", "### 1.1 节", "##### 1.1.0.1 细目", "#### 1.1.1 子节"].join("\n"),
 		);
 	});
 
