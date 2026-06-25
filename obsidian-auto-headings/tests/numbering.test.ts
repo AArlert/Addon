@@ -162,6 +162,55 @@ describe("stripPrefix（默认模板）", () => {
 	});
 });
 
+describe("非 arabic 序号样式（回归：H3+ 继承前缀曾因父级 arabic 漏配而反复重写）", () => {
+	const STYLES = ["cjk", "circled", "lower-alpha", "upper-alpha"] as const;
+
+	/** 构造各级同样式、继承前级、点分、空格分隔的模板。 */
+	function templateWith(numeral: (typeof STYLES)[number]): Template {
+		const lvl = {
+			prefix: "",
+			numeral,
+			numberSeparator: ".",
+			titleSeparator: " ",
+			inherit: true,
+		};
+		return {
+			name: "t",
+			levels: {
+				h2: { ...lvl },
+				h3: { ...lvl },
+				h4: { ...lvl },
+				h5: { ...lvl },
+				h6: { ...lvl },
+			},
+			whitelist: [],
+		};
+	}
+
+	for (const numeral of STYLES) {
+		it(`buildPrefix→stripPrefix 在 H3/H4 对 ${numeral} 能干净还原`, () => {
+			const tpl = templateWith(numeral);
+			const c = new HeadingCounter();
+			c.bump(2); // c2=1
+			c.bump(3); // c3=1（父级 1 为 arabic、本级套用 numeral）
+			expect(stripPrefix(buildPrefix(tpl, 3, c) + "标题", 3, tpl)).toBe("标题");
+			c.bump(4); // c4=1
+			expect(stripPrefix(buildPrefix(tpl, 4, c) + "标题", 4, tpl)).toBe("标题");
+		});
+	}
+
+	it("cjk 模板连续两次编号结果一致（不累加前缀）", () => {
+		const tpl = templateWith("cjk");
+		const content = ["# 文档", "## 章", "### 节", "#### 子节"].join("\n");
+		const once = renumberContent(content, tpl, { mode: "live" });
+		const twice = renumberContent(once, tpl, { mode: "live" });
+		expect(twice).toBe(once);
+		// 前缀应为「父级 arabic + 本级 cjk」，而非被反复重写成「1.一 1.一」。
+		expect(once).toContain("### 1.一 节");
+		expect(once).toContain("#### 1.1.一 子节");
+	});
+});
+
 describe("numberHeadings", () => {
 	function headingsOf(content: string): Heading[] {
 		return parseHeadings(content);

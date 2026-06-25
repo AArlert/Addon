@@ -399,7 +399,11 @@ export function stripPrefix(text: string, level: number, template: Template): st
 
 	const token = numeralTokenPattern(fmt.numeral);
 	const sep = escapeRegExp(fmt.numberSeparator);
-	const numberPattern = fmt.inherit ? `${token}(?:${sep}${token})*` : token;
+	// 与 buildPrefix 的结构严格对应：继承前级时，父级序号一律为阿拉伯数字（`\d+`），
+	// 仅本级（末段）套用模板的 numeral 样式。因此前缀形如 `父1{sep}父2{sep}…{sep}本级`，
+	// 父级段数随层级与跳级（跳过为 0 的中间级）而变。若用本级 token 去匹配父级段，
+	// 当 numeral 非 arabic 时（如 cjk 的 `1.一`）会漏配，导致前缀剥不掉、被反复重写。
+	const numberPattern = fmt.inherit ? `(?:\\d+${sep})*${token}` : token;
 
 	const pattern = new RegExp(
 		`^${escapeRegExp(fmt.prefix)}${numberPattern}${escapeRegExp(fmt.titleSeparator)}`,
