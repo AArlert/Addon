@@ -11,9 +11,11 @@
  */
 
 import {
+	DEFAULT_SKIP_FILL,
 	DEFAULT_TEMPLATE,
 	type LevelFormat,
 	type NumeralStyle,
+	type SkipFill,
 	type Template,
 	type WhitelistEntry,
 } from "../numbering";
@@ -98,6 +100,28 @@ function normalizeWhitelist(raw: unknown): WhitelistEntry[] {
 }
 
 /**
+ * 将磁盘上的跳级占位策略规范化为合法的 {@link SkipFill}。
+ * - `{ mode: "drop" }`：不补位。
+ * - `{ mode: "fill", placeholder }`：补位；占位文本缺失/为空时回退为 `0`（避免空段）。
+ * - 缺失/非法（含历史上没有该字段的旧模板）：回退到默认（补 `0`）。
+ */
+function normalizeSkipFill(raw: unknown): SkipFill {
+	if (isObject(raw)) {
+		if (raw.mode === "drop") {
+			return { mode: "drop" };
+		}
+		if (raw.mode === "fill") {
+			const placeholder =
+				typeof raw.placeholder === "string" && raw.placeholder.length > 0
+					? raw.placeholder
+					: "0";
+			return { mode: "fill", placeholder };
+		}
+	}
+	return { ...DEFAULT_SKIP_FILL };
+}
+
+/**
  * 将任意已解析的 JSON 值规范化为合法的 {@link Template}。
  *
  * @param raw 已 `JSON.parse` 的对象（可能不完整或被手改坏）。
@@ -116,6 +140,7 @@ export function normalizeTemplate(raw: unknown, fallbackName: string): Template 
 			h6: normalizeLevel(levels.h6),
 		},
 		whitelist: normalizeWhitelist(obj.whitelist),
+		skipFill: normalizeSkipFill(obj.skipFill),
 	};
 }
 

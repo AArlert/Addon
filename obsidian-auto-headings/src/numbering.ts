@@ -25,6 +25,32 @@ export type RenumberMode = "live" | "format";
 /** 序号样式枚举（见 README 3.6）。 */
 export type NumeralStyle = "arabic" | "cjk" | "circled" | "lower-alpha" | "upper-alpha";
 
+/**
+ * 跳级（如 H3 → H5，中间缺 H4）时，缺失中间层级的占位策略（由用户在设置中选择）。
+ * - `drop`：**不补位**——丢弃该段，序号段数等于实际存在的层级数（H5 跟在 H3 后呈现为三段、与 H4 同形）。
+ * - `fill`：**补位**——以 `placeholder` 字面量填充缺失段，使段数等于标题深度；
+ *   `placeholder` 由用户自填（如 `0` 得 `1.1.0.1`、`1` 得 `1.1.1.1`、任意字符如 `-` 得 `1.1.-.1`）。
+ */
+export type SkipFill = { mode: "drop" } | { mode: "fill"; placeholder: string };
+
+/** 默认占位策略：补 `0`（与历史默认行为一致）。 */
+export const DEFAULT_SKIP_FILL: SkipFill = { mode: "fill", placeholder: "0" };
+
+/**
+ * 规范化占位策略：`fill` 模式下占位文本为空时回退为 `0`，避免拼出空段（如 `1.1..1`）。
+ * 用于从持久化数据 / 选项读入后做一次防御性收口。
+ */
+export function normalizeSkipFill(skipFill: SkipFill | undefined): SkipFill {
+	if (!skipFill) {
+		return DEFAULT_SKIP_FILL;
+	}
+	if (skipFill.mode === "drop") {
+		return { mode: "drop" };
+	}
+	const placeholder = skipFill.placeholder?.length ? skipFill.placeholder : "0";
+	return { mode: "fill", placeholder };
+}
+
 /** 单个标题级别（H2–H6）的显示格式。 */
 export interface LevelFormat {
 	/** 序号前的自定义文本，可为空。 */
@@ -45,7 +71,7 @@ export interface WhitelistEntry {
 	match: "exact" | "partial" | "subtree";
 }
 
-/** 一个具名模板：为 H2–H6 各级定义显示格式，并附带白名单。 */
+/** 一个具名模板：为 H2–H6 各级定义显示格式，并附带白名单与跳级占位策略。 */
 export interface Template {
 	name: string;
 	levels: {
@@ -56,6 +82,11 @@ export interface Template {
 		h6: LevelFormat;
 	};
 	whitelist: WhitelistEntry[];
+	/**
+	 * 跳级（如 H3 → H5）时缺失中间层级的占位策略（见 {@link SkipFill}）。
+	 * **由各模板自行决定**：补不补、补什么（`0`/`1`/任意字符）随模板配置；默认补 `0`。
+	 */
+	skipFill: SkipFill;
 }
 
 /** 默认模板：纯阿拉伯多级点分（`1` / `1.1` / `1.1.1` …），见 README 默认 `default.json`。 */
@@ -103,6 +134,7 @@ export const DEFAULT_TEMPLATE: Template = {
 		{ text: "附录", match: "exact" },
 		{ text: "参考文献", match: "exact" },
 	],
+	skipFill: DEFAULT_SKIP_FILL,
 };
 
 /**
@@ -316,17 +348,25 @@ export function buildPrefix(template: Template, level: number, counter: HeadingC
 	let numberStr: string;
 	if (fmt.inherit) {
 		const seq = counter.sequence(level);
+		const skipFill = normalizeSkipFill(template.skipFill);
 		const parts: string[] = [];
 		seq.forEach((value, i) => {
-			// 每段套用其所在级别的 numeral 样式（seq[i] 对应级别 i + 2）。
+			// 标题层级跳跃（如 H3 → H5）时，缺失的中间级别计数器值为 0、从未实例化。
+			// 此处按用户选择的占位策略处理（见 {@link SkipFill}）：
+			// - drop：不补位，丢弃该段（段数 = 实际存在的层级数）。
+			// - fill：以 placeholder 字面量补位（如 `0` → `1.1.0.1`），段数 = 标题深度。
+			// 无论补不补，该级计数器本身仍保持 0，直到真正出现该级标题才从 1 累加——
+			// 因此后续首个真实的该级标题不被借号（如 H3→H5 在前，随后首个真实 H4 仍为 `…1`）。
+			if (value === 0) {
+				if (skipFill.mode === "drop") {
+					return;
+				}
+				parts.push(skipFill.placeholder);
+				return;
+			}
+			// 正常段：每段套用其所在级别的 numeral 样式（seq[i] 对应级别 i + 2）。
 			const segLevel = i + 2;
 			const segFmt = getLevelFormat(template, segLevel) ?? fmt;
-			// 标题层级跳跃（如 H3 → H5）时，缺失的中间级别计数器值为 0、从未实例化。
-			// 这里**如实呈现该 0**（默认阿拉伯样式即 `0`），使 H_n 的序号始终保有 (n−1) 段、
-			// 与标题实际深度一致（H5 → 四段而非三段），同时以 `0` 显式区别于「真实存在的该级
-			// 标题=1」：故 H3 后直接跟的 H5 为 `1.1.0.1`，而非会与真实 H4 混淆的 `1.1.1.1`。
-			// 该级计数器本身仍保持 0，直到真正出现该级标题才从 1 开始累加——因此后续真实的
-			// 该级标题不会被借号（如 H3→H5 在前，随后首个真实 H4 仍为 `…1.1` 而非 `…1.2`）。
 			parts.push(renderNumeral(segFmt.numeral, value));
 		});
 		numberStr = parts.join(fmt.numberSeparator);
@@ -413,9 +453,18 @@ function templateNumeralStyles(template: Template): Set<NumeralStyle> {
 	return set;
 }
 
-/** 把一组序号样式拼成「能匹配其中任一样式的单段 token」的正则片段。 */
-function numeralUnionToken(styles: Set<NumeralStyle>): string {
+/**
+ * 把一组序号样式拼成「能匹配其中任一样式的单段 token」的正则片段。
+ *
+ * 当占位策略为 `fill` 时，额外把占位字面量纳入并集——否则用户自定义的占位字符
+ * （如 `-`、`*`）写出的缺失段无法被识别，导致剥离失败、重复编号时叠加前缀。
+ * （`0`/`1` 等数字占位本就被 arabic token `\d+` 覆盖，此处加入无害。）
+ */
+function numeralUnionToken(styles: Set<NumeralStyle>, skipFill: SkipFill): string {
 	const parts = ALL_NUMERAL_STYLES.filter((s) => styles.has(s)).map(numeralTokenPattern);
+	if (skipFill.mode === "fill" && skipFill.placeholder.length) {
+		parts.push(escapeRegExp(skipFill.placeholder));
+	}
 	return `(?:${parts.join("|")})`;
 }
 
@@ -441,7 +490,10 @@ export function stripPrefix(text: string, level: number, template: Template): st
 		return text;
 	}
 
-	const token = numeralUnionToken(templateNumeralStyles(template));
+	const token = numeralUnionToken(
+		templateNumeralStyles(template),
+		normalizeSkipFill(template.skipFill),
+	);
 	const sep = escapeRegExp(fmt.numberSeparator);
 	// 与 buildPrefix 的结构对应：继承前级时前缀形如 `段{sep}段{sep}…{sep}段`，父级段数随层级与
 	// 跳级而变；每段都可能是任一在用样式（父级套各自级别样式、或样式变更前的旧样式），故用并集 token。

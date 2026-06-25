@@ -85,6 +85,41 @@ obsidian-auto-headings/
 
 ---
 
+## 2026-06-25 — 跳级占位策略改为「每个模板可配置」（0.3.5）
+
+**交接人**：agent（claude/heading-numbering-fourth-level-76p04p 分支）
+
+**用户诉求**：跳级缺失层级「补还是不补、补 0/1/任意字符」众口难调，应做成**选项**；且
+**不要全局设置，由每个模板自行决定**（「默认」模板将默认套用于所有 md，等价于全局默认，其他模板再各自覆盖）。
+
+**做了什么**：
+1. **数据模型**（`numbering.ts`）：新增 `SkipFill = {mode:"drop"} | {mode:"fill",placeholder}`、
+   `DEFAULT_SKIP_FILL`（补 `0`）、`normalizeSkipFill`（fill 空占位→`0` 兜底）。`Template` 增加
+   **模板级**字段 `skipFill`；`DEFAULT_TEMPLATE` 默认补 `0`（与 0.3.4 行为一致）。
+2. **引擎接线**：`buildPrefix` / `stripPrefix` 改为从 `template.skipFill` 读取策略——
+   drop 丢弃缺失段、fill 以 placeholder 字面量补段；`numeralUnionToken` 把 fill 占位纳入剥离
+   并集，保证**自定义占位（如 `-`）写出的前缀也能幂等剥离**，不会重复叠加。
+3. **持久化**（`templates/schema.ts`）：`normalizeTemplate` 解析/校验 `skipFill`，缺失（旧模板）
+   或非法回退默认补 `0`，fill 空占位回退 `0`；随 `serializeTemplate` 一并落盘。
+4. **GUI**：模板编辑面板底部新增「跳级缺失层级」下拉（补位 / 不补位）+「占位字符」文本框
+   （仅补位时显示），每模板独立、即时存盘。**未做成全局设置**（按用户要求）。
+5. **测试**：numbering 新增 skipFill 五用例（fill 0/1/自定义 `-` 幂等/drop/空占位兜底）；
+   schema 新增 4 用例（缺失/drop/自定义/非法回退）。共 86 passed。
+6. 文档：README 边界表与 §3.6 增补 `skipFill` 字段说明；`user_tests/02` 说明该选项。
+   版本 0.3.4 → 0.3.5，重新生成 `release/`。
+
+**没做什么**：未把该策略做成全局设置（刻意，按用户要求归属模板）；未触碰计数器状态机、白名单
+（M4）、错位 H1 等；按路径选模板仍属后续里程碑。
+
+**下一步**：按 README Roadmap 推进（白名单 M4、按路径选模板 M5 等）。路径模板上线后，
+「默认」模板的 `skipFill` 即为全局默认、其余模板各自覆盖的语义会自然生效。
+
+**验证方式**：`npm test`（86 passed）、`npm run lint`、`npm run format:check` 全绿；
+`npm run release` 后 `git status` 见 `release/` 更新。手动：设置面板展开某模板 → 底部切换
+「跳级缺失层级」与「占位字符」，对 H2/H3 后直接写 H5 的文档实测 `1.1.0.1` / `1.1.1.1` / `1.1.1`。
+
+---
+
 ## 2026-06-25 — 修复跳级标题少一段序号 + 面板版本号 + 测试目录重组（0.3.4）
 
 **交接人**：agent（claude/heading-numbering-fourth-level-76p04p 分支）

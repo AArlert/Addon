@@ -232,6 +232,49 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 			previewEls.set(key, previewCell);
 		});
 
+		// —— 跳级缺失层级的占位策略（每个模板各自决定）——
+		const skipFill = template.skipFill;
+		new Setting(panel)
+			.setName("跳级缺失层级")
+			.setDesc(
+				"标题跳级时（如 H3 后直接跟 H5），缺失的中间层级如何呈现：补位则保留一段并填入下方占位符（H5 得四段）；不补位则省略该段（H5 呈现为三段、与 H4 同形）。",
+			)
+			.addDropdown((dd) =>
+				dd
+					.addOption("fill", "补位")
+					.addOption("drop", "不补位（省略该段）")
+					.setValue(skipFill.mode)
+					.onChange(async (value) => {
+						template.skipFill =
+							value === "drop"
+								? { mode: "drop" }
+								: {
+										mode: "fill",
+										placeholder:
+											skipFill.mode === "fill" ? skipFill.placeholder : "0",
+									};
+						await this.plugin.templateStore.save(template);
+						this.display(); // 重新渲染以显示/隐藏占位输入框。
+					}),
+			);
+
+		if (skipFill.mode === "fill") {
+			new Setting(panel)
+				.setName("占位字符")
+				.setDesc(
+					"补位时填入缺失层级的文本：如 0（得 1.1.0.1）、1（得 1.1.1.1），或任意自定义字符；留空按 0 处理。",
+				)
+				.addText((text) =>
+					text
+						.setPlaceholder("0")
+						.setValue(skipFill.placeholder)
+						.onChange(async (value) => {
+							template.skipFill = { mode: "fill", placeholder: value };
+							await this.plugin.templateStore.save(template);
+						}),
+				);
+		}
+
 		// 白名单（Milestone 4）占位提示。
 		panel.createEl("p", {
 			cls: "ah-section-desc",

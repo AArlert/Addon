@@ -62,6 +62,30 @@ describe("normalizeTemplate", () => {
 		expect(normalizeTemplate(null, "fb").name).toBe("fb");
 		expect(normalizeTemplate("oops", "fb").levels.h3.numeral).toBe("arabic");
 	});
+
+	it("缺失 skipFill（旧模板）回退为默认补 0", () => {
+		const t = normalizeTemplate({ name: "旧模板" }, "fb");
+		expect(t.skipFill).toEqual({ mode: "fill", placeholder: "0" });
+	});
+
+	it("保留合法的 skipFill：drop / fill 自定义占位", () => {
+		expect(normalizeTemplate({ skipFill: { mode: "drop" } }, "fb").skipFill).toEqual({
+			mode: "drop",
+		});
+		expect(
+			normalizeTemplate({ skipFill: { mode: "fill", placeholder: "-" } }, "fb").skipFill,
+		).toEqual({ mode: "fill", placeholder: "-" });
+	});
+
+	it("非法/空 skipFill 回退：未知 mode→默认，fill 空占位→补 0", () => {
+		expect(normalizeTemplate({ skipFill: { mode: "wat" } }, "fb").skipFill).toEqual({
+			mode: "fill",
+			placeholder: "0",
+		});
+		expect(
+			normalizeTemplate({ skipFill: { mode: "fill", placeholder: "" } }, "fb").skipFill,
+		).toEqual({ mode: "fill", placeholder: "0" });
+	});
 });
 
 describe("serializeTemplate", () => {
