@@ -12,7 +12,8 @@ describe("normalizeTemplate", () => {
 	it("空对象回退为合法的默认结构", () => {
 		const t = normalizeTemplate({}, "兜底名");
 		expect(t.name).toBe("兜底名");
-		expect(Object.keys(t.levels)).toEqual(["h2", "h3", "h4", "h5", "h6"]);
+		expect(Object.keys(t.levels)).toEqual(["h1", "h2", "h3", "h4", "h5", "h6"]);
+		expect(t.topLevel).toBe(2); // 起始编号层级默认 H2
 		expect(t.levels.h2).toEqual({
 			prefix: "",
 			numeral: "arabic",
@@ -95,6 +96,15 @@ describe("normalizeTemplate", () => {
 		expect(
 			normalizeTemplate({ skipFill: { mode: "fill", placeholder: "*-#" } }, "fb").skipFill,
 		).toEqual({ mode: "fill", placeholder: "0" });
+	});
+
+	it("规范化 topLevel：夹到 1–6，非法回退 H2", () => {
+		expect(normalizeTemplate({ topLevel: 1 }, "fb").topLevel).toBe(1);
+		expect(normalizeTemplate({ topLevel: 6 }, "fb").topLevel).toBe(6);
+		expect(normalizeTemplate({ topLevel: 0 }, "fb").topLevel).toBe(1); // 夹到下限
+		expect(normalizeTemplate({ topLevel: 9 }, "fb").topLevel).toBe(6); // 夹到上限
+		expect(normalizeTemplate({ topLevel: "x" }, "fb").topLevel).toBe(2); // 非数字回退
+		expect(normalizeTemplate({}, "fb").topLevel).toBe(2); // 缺失（旧模板）回退
 	});
 
 	it("保留各级 suffix（后缀字段）", () => {

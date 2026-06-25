@@ -14,16 +14,23 @@
 
 import { Heading, parseHeadings } from "./parser";
 
-/**
- * 重新编号的触发模式，决定后续错位 H1 的处理方式（见 README 3.4）。
- * - `live`（实时编辑，防抖自动触发）：错位 H1 仅将本行 `#` 改写为 `##`，**不**触动子树。
- * - `format`（「立即重新编号」命令）：错位 H1 级联降级——`#`→`##` 且其下属标题
- *   层级整体下移一级，直至下一个原始 H1 或文件末尾。
- */
-export type RenumberMode = "live" | "format";
-
 /** 序号样式枚举（见 README 3.6）。 */
 export type NumeralStyle = "arabic" | "cjk" | "circled" | "lower-alpha" | "upper-alpha";
+
+/** 起始编号层级的默认值：H2（即默认 H1 不编号、作为标题/分节）。 */
+export const DEFAULT_TOP_LEVEL = 2;
+
+/**
+ * 规范化「起始编号层级」`topLevel`：夹到合法范围 [1, 6]，非数字回退默认 H2。
+ * 含义：比 `topLevel` 浅的标题完全不编号、不改写；它及更深的标题正常编号，并以它为序号第一段。
+ */
+export function normalizeTopLevel(value: unknown): number {
+	const n = Math.round(Number(value));
+	if (!Number.isFinite(n)) {
+		return DEFAULT_TOP_LEVEL;
+	}
+	return Math.min(6, Math.max(1, n));
+}
 
 /**
  * 跳级（如 H3 → H5，中间缺 H4）时，缺失中间层级的占位策略（由用户在设置中选择）。
@@ -88,10 +95,11 @@ export interface WhitelistEntry {
 	match: "exact" | "partial" | "subtree";
 }
 
-/** 一个具名模板：为 H2–H6 各级定义显示格式，并附带白名单与跳级占位策略。 */
+/** 一个具名模板：为 H1–H6 各级定义显示格式，并附带白名单、跳级占位策略与起始编号层级。 */
 export interface Template {
 	name: string;
 	levels: {
+		h1: LevelFormat;
 		h2: LevelFormat;
 		h3: LevelFormat;
 		h4: LevelFormat;
@@ -104,12 +112,26 @@ export interface Template {
 	 * **由各模板自行决定**：补不补、补什么（`0`/`1`/任意字符）随模板配置；默认补 `0`。
 	 */
 	skipFill: SkipFill;
+	/**
+	 * 起始编号层级（1–6，默认 H2，见 {@link normalizeTopLevel}）。
+	 * 比它浅的标题完全不编号、不被改写；它及更深的标题正常编号，并以它为序号第一段。
+	 * **由各模板自行决定**（默认模板 = 全局默认）。
+	 */
+	topLevel: number;
 }
 
 /** 默认模板：纯阿拉伯多级点分（`1` / `1.1` / `1.1.1` …），见 README 默认 `default.json`。 */
 export const DEFAULT_TEMPLATE: Template = {
 	name: "默认",
 	levels: {
+		h1: {
+			prefix: "",
+			numeral: "arabic",
+			suffix: "",
+			numberSeparator: ".",
+			titleSeparator: " ",
+			inherit: true,
+		},
 		h2: {
 			prefix: "",
 			numeral: "arabic",
@@ -157,23 +179,26 @@ export const DEFAULT_TEMPLATE: Template = {
 		{ text: "参考文献", match: "exact" },
 	],
 	skipFill: DEFAULT_SKIP_FILL,
+	topLevel: DEFAULT_TOP_LEVEL,
 };
 
 /**
- * 计数器状态机。内部维护 `[c2, c3, c4, c5, c6]`，分别对应 H2–H6
- * （H1 为文档标题，不参与计数）。全程使用纯阿拉伯整数。
+ * 计数器状态机。内部维护 `[c1, c2, c3, c4, c5, c6]`，分别对应 H1–H6。
+ * 所有标题（无论是否在编号范围内）都推进计数器：比 `topLevel` 浅的标题虽不输出序号，
+ * 但仍累加并归零更深级别，从而充当「重置边界」（多个 H1 各自子节重新从 1 起）。
+ * 全程使用纯阿拉伯整数。
  */
 export class HeadingCounter {
-	/** counts[0] -> H2, …, counts[4] -> H6。 */
-	private readonly counts = [0, 0, 0, 0, 0];
+	/** counts[0] -> H1, …, counts[5] -> H6。 */
+	private readonly counts = [0, 0, 0, 0, 0, 0];
 
 	/**
 	 * 推进给定级别的计数器：`c[level]` 加一，所有更深级别归零。
-	 * @param level 标题级别，必须在 2–6。
+	 * @param level 标题级别，必须在 1–6。
 	 */
 	bump(level: number): void {
 		assertCountedLevel(level);
-		const idx = level - 2;
+		const idx = level - 1;
 		this.counts[idx] += 1;
 		for (let i = idx + 1; i < this.counts.length; i++) {
 			this.counts[i] = 0;
@@ -183,16 +208,16 @@ export class HeadingCounter {
 	/** 返回某级当前的纯阿拉伯计数值。 */
 	current(level: number): number {
 		assertCountedLevel(level);
-		return this.counts[level - 2];
+		return this.counts[level - 1];
 	}
 
 	/**
-	 * 返回从 H2 到 `level` 的计数序列（纯阿拉伯整数），用于「继承前级」拼接。
-	 * 例如 level=4 时返回 `[c2, c3, c4]`。
+	 * 返回从 H1 到 `level` 的计数序列（纯阿拉伯整数）。
+	 * 例如 level=4 时返回 `[c1, c2, c3, c4]`；拼接前缀时由 {@link buildPrefix} 按 `topLevel` 截取。
 	 */
 	sequence(level: number): number[] {
 		assertCountedLevel(level);
-		return this.counts.slice(0, level - 1);
+		return this.counts.slice(0, level);
 	}
 
 	/** 将所有计数器归零（用于复用同一实例重新编号另一文件）。 */
@@ -202,14 +227,16 @@ export class HeadingCounter {
 }
 
 function assertCountedLevel(level: number): void {
-	if (level < 2 || level > 6) {
-		throw new RangeError(`参与计数的标题级别须在 2–6，收到 ${level}`);
+	if (level < 1 || level > 6) {
+		throw new RangeError(`参与计数的标题级别须在 1–6，收到 ${level}`);
 	}
 }
 
-/** 取模板中对应级别的格式；级别不在 2–6 时返回 undefined。 */
+/** 取模板中对应级别的格式；级别不在 1–6 时返回 undefined。 */
 function getLevelFormat(template: Template, level: number): LevelFormat | undefined {
 	switch (level) {
+		case 1:
+			return template.levels.h1;
 		case 2:
 			return template.levels.h2;
 		case 3:
@@ -356,20 +383,23 @@ export function renderNumeral(style: NumeralStyle, value: number): string {
 /**
  * 依据模板与当前计数器状态，为某级标题拼装编号前缀。
  *
- * - 继承前级 = 开：`prefix + 父级序号（以 numberSeparator 拼接）+ numberSeparator + 本级序号 + titleSeparator`
- *   （**每一级父级各自套用其所在级别的 numeral 样式**，而非一律阿拉伯——这样把 H3 设为字母、
- *   H4 设为带圈时，H4 的前缀能呈现为 `1.a.①` 而非 `1.1.①`，使父级样式向下可见）。
- * - 继承前级 = 关：`prefix + 本级序号 + titleSeparator`。
+ * 序号段从模板的 `topLevel` 起算（而非固定 H2）：如 `topLevel=H1` 时 H2 前缀为 `1.1`、
+ * `topLevel=H3` 时 H4 前缀为 `1.1`（只取 H3–H4 两段）。仅应对 `level >= topLevel` 调用。
+ *
+ * - 继承前级 = 开：`prefix + 各级序号（以 numberSeparator 拼接，每级各自套用其样式）+ suffix + titleSeparator`。
+ * - 继承前级 = 关：`prefix + 本级序号 + suffix + titleSeparator`。
  */
 export function buildPrefix(template: Template, level: number, counter: HeadingCounter): string {
 	const fmt = getLevelFormat(template, level);
 	if (!fmt) {
-		throw new RangeError(`无法为级别 ${level} 拼装前缀（仅支持 H2–H6）`);
+		throw new RangeError(`无法为级别 ${level} 拼装前缀（仅支持 H1–H6）`);
 	}
+	const top = normalizeTopLevel(template.topLevel);
 
 	let numberStr: string;
 	if (fmt.inherit) {
-		const seq = counter.sequence(level);
+		// 仅取 topLevel..level 的计数段（counter.sequence 返回 c1..cLevel）。
+		const seq = counter.sequence(level).slice(top - 1);
 		const skipFill = normalizeSkipFill(template.skipFill);
 		const parts: string[] = [];
 		seq.forEach((value, i) => {
@@ -386,8 +416,8 @@ export function buildPrefix(template: Template, level: number, counter: HeadingC
 				parts.push(skipFill.placeholder);
 				return;
 			}
-			// 正常段：每段套用其所在级别的 numeral 样式（seq[i] 对应级别 i + 2）。
-			const segLevel = i + 2;
+			// 正常段：每段套用其所在级别的 numeral 样式（seq[i] 对应级别 top + i）。
+			const segLevel = top + i;
 			const segFmt = getLevelFormat(template, segLevel) ?? fmt;
 			parts.push(renderNumeral(segFmt.numeral, value));
 		});
@@ -407,12 +437,14 @@ export function buildPrefix(template: Template, level: number, counter: HeadingC
  * 仅用于面板展示，不影响真实编号。返回值已 trim 末尾空白以便紧凑展示。
  */
 export function previewLevel(template: Template, level: number, count = 3): string[] {
-	if (level < 2 || level > 6) {
+	const top = normalizeTopLevel(template.topLevel);
+	// 低于起始编号层级或越界：不编号，无预览。
+	if (level < top || level < 1 || level > 6) {
 		return [];
 	}
 	const counter = new HeadingCounter();
-	// 父级与本级先全部置 1。
-	for (let l = 2; l <= level; l++) {
+	// 从起始层级到本级先全部置 1。
+	for (let l = top; l <= level; l++) {
 		counter.bump(l);
 	}
 	const out: string[] = [];
@@ -465,6 +497,7 @@ const ALL_NUMERAL_STYLES: NumeralStyle[] = [
 function templateNumeralStyles(template: Template): Set<NumeralStyle> {
 	const set = new Set<NumeralStyle>(["arabic"]);
 	for (const lvl of [
+		template.levels.h1,
 		template.levels.h2,
 		template.levels.h3,
 		template.levels.h4,
@@ -546,67 +579,12 @@ export interface NumberedHeading {
 	level: number;
 	/** 已剥离编号前缀的纯标题文本。 */
 	text: string;
-	/** 计算出的编号前缀；为 `null` 表示不写前缀（H1、白名单命中，或非 H2–H6）。 */
+	/** 计算出的编号前缀；为 `null` 表示不写前缀（低于起始编号层级、或命中白名单）。 */
 	prefix: string | null;
 	/** 标题所在行下标（0 起）。 */
 	lineIndex: number;
 	/** 重新编号后的完整行内容，如 `## 1.1 标题`。 */
 	numberedLine: string;
-}
-
-/**
- * 将一行标题的 `#` 数量改写为 `newLevel`，其余内容（标题文本与原有空白）原样保留。
- * 仅替换行首连续的 `#`，因此 `## 小节` → `### 小节`、`# 附录` → `## 附录`。
- */
-function rewriteHeadingLevel(line: string, newLevel: number): string {
-	return line.replace(/^#+/, "#".repeat(newLevel));
-}
-
-/**
- * 处理文件中多个 H1（错位 H1）的结构改写，返回改写后的完整内容（见 README 3.4）。
- *
- * 规则：
- * - 第一个 H1 始终视为「文档标题」，保留 `#` 不变。
- * - `live` 模式：此后每个错位 H1 仅将本行 `#` 改写为 `##`，**不**触动其子树。
- * - `format` 模式：自第二个 H1 起（含其本身）直至文件末尾，所有标题层级整体下移一级
- *   （`#`→`##`、`##`→`###`…，封顶 H6）。由于每个错位 H1 的「子树范围」恰好衔接到下一个
- *   原始 H1，故等价于「第二个 H1 及其后的全部标题各 +1 级」。
- *
- * 仅改写被识别为标题的行（围栏代码块内的 `#` 行由解析器忽略，不受影响）。
- */
-export function demoteStrayH1s(content: string, mode: RenumberMode): string {
-	const headings = parseHeadings(content);
-	const lines = content.split("\n");
-
-	let firstH1Seen = false;
-	let cascadeFromLine = -1; // format 模式下，自该行起的所有标题各下移一级。
-
-	for (const h of headings) {
-		if (h.level !== 1) {
-			continue;
-		}
-		if (!firstH1Seen) {
-			firstH1Seen = true;
-			continue; // 文档标题，保留不变。
-		}
-		// 错位 H1。
-		if (mode === "live") {
-			lines[h.lineIndex] = rewriteHeadingLevel(lines[h.lineIndex], 2);
-		} else if (cascadeFromLine === -1) {
-			cascadeFromLine = h.lineIndex; // 记录第一个错位 H1 的行，触发级联。
-		}
-	}
-
-	if (mode === "format" && cascadeFromLine !== -1) {
-		for (const h of headings) {
-			if (h.lineIndex >= cascadeFromLine) {
-				const newLevel = Math.min(h.level + 1, 6);
-				lines[h.lineIndex] = rewriteHeadingLevel(lines[h.lineIndex], newLevel);
-			}
-		}
-	}
-
-	return lines.join("\n");
 }
 
 /** {@link numberHeadings} / {@link renumberContent} 的可选项。 */
@@ -617,17 +595,18 @@ export interface NumberOptions {
 	 * 通过该回调注入，以便单元测试验证「不占槽位」的计数行为。默认无白名单。
 	 */
 	isWhitelisted?: (heading: Heading) => boolean;
-	/**
-	 * 触发模式，决定错位 H1 的降级方式（见 {@link RenumberMode}）。默认 `live`。
-	 */
-	mode?: RenumberMode;
 }
 
 /**
  * 对一组标题应用模板与计数器，计算每个标题的编号前缀。
  *
- * H1 规则（本里程碑）：所有 H1 均不编号、不计数（首个 H1 为文档标题；后续错位 H1 的
- * 降级处理留待 Milestone 2）。H2–H6 按计数器状态机编号；白名单标题跳过且不占槽位。
+ * 规则：
+ * - **插件永不改写标题层级**（不再有错位 H1 降级）。
+ * - 每个非白名单标题都推进计数器（`bump` 本级、归零更深级），即便它低于 `topLevel`——
+ *   故超出编号范围的标题（如默认下的 H1）仍是「重置边界」：其后更深标题重新从 1 起。
+ * - 仅对 `level >= topLevel` 的标题输出序号前缀并剥离旧前缀；更浅的标题原样保留、不剥离
+ *   （避免把「2024 年度总结」这类标题误当前缀剥掉）。
+ * - 白名单命中者完全透明：不计数、不归零、不写前缀，但仍剥离其已有编号（豁免即去号）。
  */
 export function numberHeadings(
 	headings: Heading[],
@@ -636,26 +615,17 @@ export function numberHeadings(
 ): NumberedHeading[] {
 	const counter = new HeadingCounter();
 	const isWhitelisted = options.isWhitelisted ?? (() => false);
+	const top = normalizeTopLevel(template.topLevel);
 
 	return headings.map((heading) => {
-		const text = stripPrefix(heading.text, heading.level, template);
-		const hashes = "#".repeat(heading.level);
+		const level = heading.level;
+		const hashes = "#".repeat(level);
 
-		// H1 及非计数级别：不编号、不计数。
-		if (heading.level < 2 || heading.level > 6) {
-			return {
-				level: heading.level,
-				text,
-				prefix: null,
-				lineIndex: heading.lineIndex,
-				numberedLine: `${hashes} ${text}`,
-			};
-		}
-
-		// 白名单命中：不写前缀，且不占计数器槽位。
+		// 白名单命中：完全透明（不计数、不归零），但剥离其已有编号。
 		if (isWhitelisted(heading)) {
+			const text = stripPrefix(heading.text, level, template);
 			return {
-				level: heading.level,
+				level,
 				text,
 				prefix: null,
 				lineIndex: heading.lineIndex,
@@ -663,10 +633,24 @@ export function numberHeadings(
 			};
 		}
 
-		counter.bump(heading.level);
-		const prefix = buildPrefix(template, heading.level, counter);
+		// 推进计数器（即便低于 topLevel，也作为重置边界）。
+		counter.bump(level);
+
+		// 低于起始编号层级：不编号、不剥离、原样保留。
+		if (level < top) {
+			return {
+				level,
+				text: heading.text,
+				prefix: null,
+				lineIndex: heading.lineIndex,
+				numberedLine: `${hashes} ${heading.text}`,
+			};
+		}
+
+		const text = stripPrefix(heading.text, level, template);
+		const prefix = buildPrefix(template, level, counter);
 		return {
-			level: heading.level,
+			level,
 			text,
 			prefix,
 			lineIndex: heading.lineIndex,
@@ -676,27 +660,24 @@ export function numberHeadings(
 }
 
 /**
- * 解析整篇文档、重新编号所有 H2–H6 标题，并返回重写后的完整内容。
+ * 解析整篇文档、重新编号编号范围内（`>= topLevel`）的标题，并返回重写后的完整内容。
  *
- * 处理流程（见 README 3.3 / 3.4）：
- * 1. 先按触发模式对错位 H1 做结构改写（{@link demoteStrayH1s}）。
- * 2. 重新解析改写后的内容，视其为不含第二个 H1 的标准文件进行编号。
+ * 处理流程：
+ * 1. 解析标题（围栏代码块内的 `#` 行由解析器忽略）。
+ * 2. 按 {@link numberHeadings} 计算各标题的前缀（**不改写任何标题层级**）。
  * 3. 仅替换被识别为标题的行，其余行（含代码块、正文）原样保留。
  *
- * 触发模式由 `options.mode` 指定（默认 `live`）。真正写回编辑器的事务化操作在 main.ts。
+ * 真正写回编辑器的事务化操作在 main.ts。
  */
 export function renumberContent(
 	content: string,
 	template: Template = DEFAULT_TEMPLATE,
 	options: NumberOptions = {},
 ): string {
-	const mode = options.mode ?? "live";
-	const demoted = demoteStrayH1s(content, mode);
-
-	const headings = parseHeadings(demoted);
+	const headings = parseHeadings(content);
 	const numbered = numberHeadings(headings, template, options);
 
-	const lines = demoted.split("\n");
+	const lines = content.split("\n");
 	for (const h of numbered) {
 		lines[h.lineIndex] = h.numberedLine;
 	}

@@ -1,6 +1,6 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type AutoHeadingsPlugin from "../main";
-import { type NumeralStyle, previewLevel, type Template } from "../numbering";
+import { normalizeTopLevel, type NumeralStyle, previewLevel, type Template } from "../numbering";
 import { DEFAULT_TEMPLATE_NAME, LEVEL_KEYS, type LevelKey } from "../templates/schema";
 
 /** 序号样式下拉的选项（值 → 中文标签，含示例字形）。 */
@@ -158,15 +158,33 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 				});
 		}
 
-		// 网格表头。
+		// —— 起始编号层级（下拉，每个模板各自决定）——
+		const top = normalizeTopLevel(template.topLevel);
+		new Setting(panel)
+			.setName("起始编号层级")
+			.setDesc(
+				"从哪一级标题开始编号：比它浅的标题不编号、也不会被改写（如默认 H2：H1 作标题/分节，多个 H1 各自原样保留）。它及更深的标题正常编号，并以它为序号第一段。",
+			)
+			.addDropdown((dd) => {
+				for (let l = 1; l <= 6; l++) {
+					dd.addOption(String(l), `H${l}`);
+				}
+				dd.setValue(String(top)).onChange(async (value) => {
+					template.topLevel = normalizeTopLevel(Number(value));
+					await this.plugin.templateStore.save(template);
+					this.display(); // 重新渲染以更新各级行的「生效/置灰」与预览。
+				});
+			});
+
+		// 网格表头（列序：级别 → 前缀 → 序号 → 序号间隔符 → 后缀 → 标题间隔符 → 继承前级 → 预览）。
 		const grid = panel.createDiv({ cls: "ah-grid" });
 		const headRow = grid.createDiv({ cls: "ah-grid-row ah-grid-head" });
 		for (const label of [
 			"级别",
 			"前缀",
 			"序号",
-			"后缀",
 			"序号间隔符",
+			"后缀",
 			"标题间隔符",
 			"继承前级",
 			"预览",
@@ -174,12 +192,15 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 			headRow.createDiv({ cls: "ah-grid-cell", text: label });
 		}
 
-		// 每级一行。
+		// 每级一行（H1–H6）。低于起始编号层级的行置灰，表示当前不参与编号。
 		const previewEls = new Map<LevelKey, HTMLElement>();
 		LEVEL_KEYS.forEach((key, i) => {
-			const level = i + 2;
+			const level = i + 1;
 			const fmt = template.levels[key];
-			const row = grid.createDiv({ cls: "ah-grid-row" });
+			const inactive = level < top;
+			const row = grid.createDiv({
+				cls: inactive ? "ah-grid-row ah-grid-row-inactive" : "ah-grid-row",
+			});
 
 			row.createDiv({ cls: "ah-grid-cell ah-level-label", text: `H${level}` });
 
@@ -206,15 +227,15 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 				await this.saveAndPreview(template, level, key, previewEls);
 			});
 
-			// 后缀（序号之后、标题间隔符之前，如「章」「节」）。
-			this.textCell(row, fmt.suffix, "后缀", async (v) => {
-				fmt.suffix = v;
-				await this.saveAndPreview(template, level, key, previewEls);
-			});
-
 			// 序号间隔符。
 			this.textCell(row, fmt.numberSeparator, ".", async (v) => {
 				fmt.numberSeparator = v;
+				await this.saveAndPreview(template, level, key, previewEls);
+			});
+
+			// 后缀（序号之后、标题间隔符之前，如「章」「节」）。
+			this.textCell(row, fmt.suffix, "后缀", async (v) => {
+				fmt.suffix = v;
 				await this.saveAndPreview(template, level, key, previewEls);
 			});
 
@@ -324,8 +345,11 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 		await this.plugin.templateStore.save(template);
 	}
 
-	/** 计算某级的预览字符串（取前三个同级序号示例）。 */
+	/** 计算某级的预览字符串（取前三个同级序号示例）；低于起始编号层级时显示「（不编号）」。 */
 	private previewText(template: Template, level: number): string {
+		if (level < normalizeTopLevel(template.topLevel)) {
+			return "（不编号）";
+		}
 		const samples = previewLevel(template, level);
 		return samples.map((s) => `${s}标题`).join("    ");
 	}

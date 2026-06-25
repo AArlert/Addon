@@ -9,15 +9,15 @@ import {
 import { AutoHeadingsSettings, DEFAULT_SETTINGS, clampDebounceDelay } from "./settings";
 import { AutoHeadingsSettingTab } from "./settings/SettingsTab";
 import { isDisabledByFrontmatter } from "./frontmatter";
-import { RenumberMode, renumberContent, type Template } from "./numbering";
+import { renumberContent, type Template } from "./numbering";
 import { TemplateStore } from "./templates/TemplateStore";
 
 /**
  * obsidian-auto-headings 插件入口。
  *
- * Milestone 2：editor onChange 监听 + 各文件防抖计时器；H1 双模式降级；以单一事务
- * 整文件重写回编辑器；「立即重新编号」命令（格式化模式）；面板全局开关 ↔ 全局命令
- * 双向同步；读取 frontmatter 单文件开关。
+ * Milestone 2：editor onChange 监听 + 各文件防抖计时器；以单一事务整文件重写回编辑器；
+ * 「立即重新编号」命令；面板全局开关 ↔ 全局命令双向同步；读取 frontmatter 单文件开关。
+ * 注：插件**永不改写标题层级**，多个 H1 按各模板的「起始编号层级」处理（见 numbering.ts）。
  *
  * Milestone 3：接入 {@link TemplateStore}（首次启用自动创建 templates/default.json）；
  * 编号改用 {@link getActiveTemplate} 返回的全局默认模板（GUI 编辑即时生效）。
@@ -56,7 +56,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 			},
 		});
 
-		// 立即重新编号：绕过防抖，对当前文件执行一次完整格式化（H1 级联降级）。
+		// 立即重新编号：绕过防抖，对当前文件执行一次完整重新编号。
 		this.addCommand({
 			id: "renumber-now",
 			name: "立即重新编号（当前文件）",
@@ -150,15 +150,15 @@ export default class AutoHeadingsPlugin extends Plugin {
 			if (!this.settings.enabled) {
 				return;
 			}
-			this.applyRenumber(editor, "live");
+			this.applyRenumber(editor);
 		}, this.settings.debounceDelay);
 
 		this.debounceTimers.set(path, timer);
 	}
 
 	/**
-	 * 「立即重新编号」命令的处理：绕过防抖，以**格式化模式**（H1 级联降级）
-	 * 立即对当前编辑器执行一次完整重新编号。仍遵守生效判定（全局开关、frontmatter）。
+	 * 「立即重新编号」命令的处理：绕过防抖，立即对当前编辑器执行一次完整重新编号。
+	 * 仍遵守生效判定（全局开关、frontmatter）。
 	 */
 	private runImmediateRenumber(editor: Editor, ctx: MarkdownView | MarkdownFileInfo): void {
 		if (!this.settings.enabled) {
@@ -175,7 +175,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 			}
 		}
 
-		const changed = this.applyRenumber(editor, "format");
+		const changed = this.applyRenumber(editor);
 		new Notice(changed ? "已重新编号" : "无需改动");
 	}
 
@@ -188,7 +188,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 	 *
 	 * @returns 是否实际写入了改动。
 	 */
-	private applyRenumber(editor: Editor, mode: RenumberMode): boolean {
+	private applyRenumber(editor: Editor): boolean {
 		const oldContent = editor.getValue();
 
 		// 单文件开关：frontmatter 显式 OFF 时不处理。
@@ -196,7 +196,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 			return false;
 		}
 
-		const newContent = renumberContent(oldContent, this.getActiveTemplate(), { mode });
+		const newContent = renumberContent(oldContent, this.getActiveTemplate());
 		if (newContent === oldContent) {
 			return false;
 		}

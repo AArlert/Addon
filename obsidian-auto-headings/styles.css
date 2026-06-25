@@ -59,6 +59,11 @@
 	min-width: 0;
 }
 
+/* 低于起始编号层级的行：置灰，表示当前不参与编号（仍可编辑，待提升起始层级后生效） */
+.ah-grid-row-inactive {
+	opacity: 0.45;
+}
+
 .ah-level-label {
 	font-weight: var(--font-medium);
 	color: var(--text-normal);

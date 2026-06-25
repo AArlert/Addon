@@ -14,6 +14,7 @@ import {
 	DEFAULT_SKIP_FILL,
 	DEFAULT_TEMPLATE,
 	type LevelFormat,
+	normalizeTopLevel,
 	type NumeralStyle,
 	sanitizePlaceholder,
 	type SkipFill,
@@ -27,8 +28,8 @@ export const DEFAULT_TEMPLATE_NAME = "默认";
 /** 默认模板的固定文件名（不经名称安全化，始终为 `default.json`）。 */
 export const DEFAULT_TEMPLATE_FILENAME = "default.json";
 
-/** 模板各级的键，按 H2–H6 顺序。 */
-export const LEVEL_KEYS = ["h2", "h3", "h4", "h5", "h6"] as const;
+/** 模板各级的键，按 H1–H6 顺序。 */
+export const LEVEL_KEYS = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
 export type LevelKey = (typeof LEVEL_KEYS)[number];
 
 /** 合法的序号样式枚举（用于校验）。 */
@@ -136,6 +137,7 @@ export function normalizeTemplate(raw: unknown, fallbackName: string): Template 
 	return {
 		name: normalizeString(obj.name, fallbackName),
 		levels: {
+			h1: normalizeLevel(levels.h1),
 			h2: normalizeLevel(levels.h2),
 			h3: normalizeLevel(levels.h3),
 			h4: normalizeLevel(levels.h4),
@@ -144,6 +146,7 @@ export function normalizeTemplate(raw: unknown, fallbackName: string): Template 
 		},
 		whitelist: normalizeWhitelist(obj.whitelist),
 		skipFill: normalizeSkipFill(obj.skipFill),
+		topLevel: normalizeTopLevel(obj.topLevel),
 	};
 }
 
