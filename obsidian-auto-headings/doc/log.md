@@ -7,6 +7,22 @@
 
 ---
 
+## ⚠️ 强制规则（所有 Agent 必须遵守）
+
+1. **每个开发周期都必须产出可供 Obsidian 实测的插件**，放在仓库的 **`release/`** 文件夹。
+   完成代码改动后，**务必运行 `npm run release`**（= `npm run build` + 同步脚本），它会把
+   `main.js` / `manifest.json` / `styles.css` 刷新进 `release/`。**不要只改源码而忘记重新生成
+   `release/`**——用户是直接拿 `release/` 里的文件丢进 `.obsidian/plugins/` 实测的。
+2. **`release/` 必须随提交一起入库**（`.gitignore` 已对 `release/main.js` 设例外放行）。
+   提交前自检：`git status` 应能看到 `release/` 下的文件已更新/已暂存。
+3. 改动若影响行为或版本，记得同步 `manifest.json` / `package.json` / `versions.json` 的版本号，
+   并在本文件**最上方追加一条新的周期记录**（做了什么 / 没做什么 / 下一步）。
+4. 合并前的质量门槛：`npm test`、`npm run lint`、`npm run format:check` 全绿。
+
+> 一句话：**写完代码 → `npm run release` → 提交（含 `release/`）→ 在本文件追加交接记录。**
+
+---
+
 ## 目录结构约定（按职责分类）
 
 ```
@@ -31,13 +47,16 @@ obsidian-auto-headings/
 ├── doc/                  ← 文档
 │   ├── README.md           需求/规格/Roadmap（原项目根 README，已移入此处）
 │   └── log.md              本文件：开发日志与交接协议
-├── 产物/                 ← 可分发插件文件（交付物，可直接丢进 .obsidian 测试）
-│   ├── main.js             生产构建（npm run build 生成）
+├── release/              ← 可分发插件文件（交付物，可直接丢进 .obsidian 测试）★每周期必更新
+│   ├── main.js             生产构建（npm run release 生成并同步）
 │   ├── manifest.json
-│   └── styles.css
+│   ├── styles.css
+│   └── README.md           安装说明
+├── scripts/
+│   └── sync-release.mjs    把构建产物同步到 release/（被 npm run release 调用）
 ├── manifest.json         ← 插件清单（Obsidian 约定须在插件根目录）
 ├── versions.json         ← 版本 → 最低 Obsidian 版本映射
-├── styles.css            ← 面板样式源（构建时随插件加载，并复制入 产物/）
+├── styles.css            ← 面板样式源（构建时随插件加载，并复制入 release/）
 ├── package.json / tsconfig.json / esbuild.config.mjs / vitest.config.ts
 ├── .eslintrc.json / .prettierrc.json / .eslintignore / .prettierignore
 └── LICENSE
@@ -49,7 +68,7 @@ obsidian-auto-headings/
 
 ## 如何安装到 Obsidian 测试
 
-将 `产物/` 下的三个文件复制到你的 Vault：
+将 `release/` 下的三个文件复制到你的 Vault：
 
 ```
 <你的 Vault>/.obsidian/plugins/obsidian-auto-headings/
@@ -61,8 +80,26 @@ obsidian-auto-headings/
 然后在 Obsidian：设置 → 第三方插件 → 启用 `Auto Headings`。首次启用会在该插件文件夹下
 自动创建 `templates/default.json`。
 
-> 重新生成产物：在项目根运行 `npm install && npm run build`，再把根目录的
-> `main.js`、`manifest.json`、`styles.css` 覆盖进 `产物/`。
+> 重新生成产物：在项目根运行 `npm install && npm run release`，脚本会自动把
+> `main.js`、`manifest.json`、`styles.css` 同步进 `release/`。
+
+---
+
+## 2026-06-24 — 交付物规范化（产物文件夹 + 强制约定）
+
+**交接人**：agent（claude/obsidian-auto-headings-m3-t051ro 分支）
+
+用户反馈：希望「每次工作都产出可供 Obsidian 实测的插件」，且产物文件夹用英文名。本次：
+
+1. **产物文件夹 `产物/` → 重命名为 `release/`**（英文、语义清晰）；安装说明文件改名为
+   `release/README.md`。同步更新 `.gitignore` / `.eslintignore` / `.prettierignore` 引用。
+2. **新增 `npm run release` 脚本**（`scripts/sync-release.mjs`）：一条命令完成「生产构建 +
+   把 main.js/manifest.json/styles.css 同步进 `release/`」，让每周期重生产物零成本。
+3. **在本文件顶部新增「⚠️ 强制规则」**：要求所有 Agent 每个周期都用 `npm run release`
+   重生 `release/` 并随提交入库——这是本次反馈的核心，已固化为团队约定。
+4. 重新生成并提交了 Milestone 3 的最新 `release/`（版本 0.3.0），可直接安装实测。
+
+未触碰任何插件功能代码；测试/lint/格式化保持全绿。
 
 ---
 
@@ -95,8 +132,8 @@ M3 的目标正是把模板系统补全，让设置面板真正可用。
 7. **预览辅助**（`src/numbering.ts` `previewLevel`）：供 GUI 生成同级序号示例。
 8. **测试**：新增 `tests/schema.test.ts`（11 例）；更新 `tests/numbering.test.ts`
    原「非 arabic 抛错」断言为各样式正确性断言。**全量 65 例通过，tsc / eslint 清白。**
-9. **工程整理**：README 移入 `doc/`；新增 `产物/` 存放可分发文件；版本 0.0.1 → 0.3.0；
-   更新 `.gitignore`（放行 `产物/main.js`）/ `.prettierignore` / `.eslintignore`。
+9. **工程整理**：README 移入 `doc/`；新增可分发产物文件夹（后于同日重命名为 `release/`）；
+   版本 0.0.1 → 0.3.0；更新 `.gitignore`（放行 `release/main.js`）/ `.prettierignore` / `.eslintignore`。
 
 ### 没做什么（明确的边界，未越界到后续 Milestone）
 - **白名单匹配未实现（M4）**：模板已携带 `whitelist` 数据并在 GUI 保留，但 exact /
@@ -132,5 +169,5 @@ cd obsidian-auto-headings
 npm install
 npm test           # 65 例
 npm run lint
-npm run build      # 生成 main.js，复制入 产物/
+npm run release    # 构建并同步可实测插件到 release/
 ```

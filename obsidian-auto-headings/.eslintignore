@@ -2,7 +2,7 @@ node_modules/
 main.js
 *.js.map
 dist/
-产物/
+release/
 coverage/
 
 .DS_Store

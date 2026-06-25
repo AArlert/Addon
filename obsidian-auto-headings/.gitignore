@@ -5,8 +5,8 @@ node_modules/
 main.js
 main.js.map
 
-# 例外：产物/ 下的可分发插件文件是交付物，需入库
-!产物/main.js
+# 例外：release/ 下的可分发插件文件是交付物，需入库
+!release/main.js
 
 # Test / coverage
 coverage/

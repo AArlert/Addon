@@ -1,6 +1,6 @@
 # Auto Headings — 可分发插件文件
 
-本文件夹内的三个文件即为可直接安装到 Obsidian 的插件产物（由 `npm run build` 生成）：
+本文件夹（`release/`）内的三个文件即为可直接安装到 Obsidian 的插件产物（由 `npm run release` 生成）：
 
 - `main.js` — 打包后的插件代码
 - `manifest.json` — 插件清单
