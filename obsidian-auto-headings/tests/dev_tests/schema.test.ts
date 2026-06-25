@@ -16,6 +16,7 @@ describe("normalizeTemplate", () => {
 		expect(t.levels.h2).toEqual({
 			prefix: "",
 			numeral: "arabic",
+			suffix: "",
 			numberSeparator: ".",
 			titleSeparator: " ",
 			inherit: true,
@@ -68,13 +69,13 @@ describe("normalizeTemplate", () => {
 		expect(t.skipFill).toEqual({ mode: "fill", placeholder: "0" });
 	});
 
-	it("保留合法的 skipFill：drop / fill 自定义占位", () => {
+	it("保留合法的 skipFill：drop / fill 数字占位", () => {
 		expect(normalizeTemplate({ skipFill: { mode: "drop" } }, "fb").skipFill).toEqual({
 			mode: "drop",
 		});
 		expect(
-			normalizeTemplate({ skipFill: { mode: "fill", placeholder: "-" } }, "fb").skipFill,
-		).toEqual({ mode: "fill", placeholder: "-" });
+			normalizeTemplate({ skipFill: { mode: "fill", placeholder: "9" } }, "fb").skipFill,
+		).toEqual({ mode: "fill", placeholder: "9" });
 	});
 
 	it("非法/空 skipFill 回退：未知 mode→默认，fill 空占位→补 0", () => {
@@ -85,6 +86,22 @@ describe("normalizeTemplate", () => {
 		expect(
 			normalizeTemplate({ skipFill: { mode: "fill", placeholder: "" } }, "fb").skipFill,
 		).toEqual({ mode: "fill", placeholder: "0" });
+	});
+
+	it("占位字符仅保留数字（非数字滤除、全非数字回退 0）", () => {
+		expect(
+			normalizeTemplate({ skipFill: { mode: "fill", placeholder: "a1-2b" } }, "fb").skipFill,
+		).toEqual({ mode: "fill", placeholder: "12" });
+		expect(
+			normalizeTemplate({ skipFill: { mode: "fill", placeholder: "*-#" } }, "fb").skipFill,
+		).toEqual({ mode: "fill", placeholder: "0" });
+	});
+
+	it("保留各级 suffix（后缀字段）", () => {
+		const t = normalizeTemplate({ levels: { h2: { prefix: "第", suffix: "章" } } }, "fb");
+		expect(t.levels.h2.prefix).toBe("第");
+		expect(t.levels.h2.suffix).toBe("章");
+		expect(t.levels.h3.suffix).toBe(""); // 缺省为空
 	});
 });
 

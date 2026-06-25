@@ -15,6 +15,7 @@ import {
 	DEFAULT_TEMPLATE,
 	type LevelFormat,
 	type NumeralStyle,
+	sanitizePlaceholder,
 	type SkipFill,
 	type Template,
 	type WhitelistEntry,
@@ -47,6 +48,7 @@ function defaultLevel(): LevelFormat {
 	return {
 		prefix: "",
 		numeral: "arabic",
+		suffix: "",
 		numberSeparator: ".",
 		titleSeparator: " ",
 		inherit: true,
@@ -74,6 +76,7 @@ function normalizeLevel(raw: unknown): LevelFormat {
 	return {
 		prefix: normalizeString(raw.prefix, base.prefix),
 		numeral: normalizeNumeral(raw.numeral),
+		suffix: normalizeString(raw.suffix, base.suffix),
 		numberSeparator: normalizeString(raw.numberSeparator, base.numberSeparator),
 		titleSeparator: normalizeString(raw.titleSeparator, base.titleSeparator),
 		// inherit 缺省视为 true；仅当显式为 false 时关闭。
@@ -111,10 +114,10 @@ function normalizeSkipFill(raw: unknown): SkipFill {
 			return { mode: "drop" };
 		}
 		if (raw.mode === "fill") {
-			const placeholder =
-				typeof raw.placeholder === "string" && raw.placeholder.length > 0
-					? raw.placeholder
-					: "0";
+			// 占位字符仅允许数字（保证可干净剥离，见 sanitizePlaceholder）；非数字滤除、空回退 0。
+			const placeholder = sanitizePlaceholder(
+				typeof raw.placeholder === "string" ? raw.placeholder : "",
+			);
 			return { mode: "fill", placeholder };
 		}
 	}

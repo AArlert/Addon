@@ -165,6 +165,7 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 			"级别",
 			"前缀",
 			"序号",
+			"后缀",
 			"序号间隔符",
 			"标题间隔符",
 			"继承前级",
@@ -202,6 +203,12 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 			});
 			select.addEventListener("change", async () => {
 				fmt.numeral = select.value as NumeralStyle;
+				await this.saveAndPreview(template, level, key, previewEls);
+			});
+
+			// 后缀（序号之后、标题间隔符之前，如「章」「节」）。
+			this.textCell(row, fmt.suffix, "后缀", async (v) => {
+				fmt.suffix = v;
 				await this.saveAndPreview(template, level, key, previewEls);
 			});
 
@@ -262,14 +269,19 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 			new Setting(panel)
 				.setName("占位字符")
 				.setDesc(
-					"补位时填入缺失层级的文本：如 0（得 1.1.0.1）、1（得 1.1.1.1），或任意自定义字符；留空按 0 处理。",
+					"补位时填入缺失层级的文本，仅限数字（如 0 得 1.1.0.1、1 得 1.1.1.1）；非数字会被自动滤除、留空按 0 处理。限数字是为确保编号始终能被干净剥离、不重复叠加。",
 				)
 				.addText((text) =>
 					text
 						.setPlaceholder("0")
 						.setValue(skipFill.placeholder)
 						.onChange(async (value) => {
-							template.skipFill = { mode: "fill", placeholder: value };
+							// 仅保留数字，并即时回写输入框（滤除非法字符）。
+							const digits = value.replace(/\D/g, "");
+							if (digits !== value) {
+								text.setValue(digits);
+							}
+							template.skipFill = { mode: "fill", placeholder: digits };
 							await this.plugin.templateStore.save(template);
 						}),
 				);

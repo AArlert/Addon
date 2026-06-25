@@ -37,7 +37,19 @@ export type SkipFill = { mode: "drop" } | { mode: "fill"; placeholder: string };
 export const DEFAULT_SKIP_FILL: SkipFill = { mode: "fill", placeholder: "0" };
 
 /**
- * 规范化占位策略：`fill` 模式下占位文本为空时回退为 `0`，避免拼出空段（如 `1.1..1`）。
+ * 收口占位字符：**仅允许数字**。
+ *
+ * 原因：{@link stripPrefix} 的剥离并集**恒含** arabic 的 `\d+`（见 {@link templateNumeralStyles}），
+ * 故纯数字占位无论之后改成什么、或切到 `drop`，旧前缀都能被干净剥离、不会重复叠加；而 `-`、`*`
+ * 等非数字占位在策略变更后会失配残留。这里把非数字字符滤除，空则回退 `0`。
+ */
+export function sanitizePlaceholder(raw: string): string {
+	const digits = (raw ?? "").replace(/\D/g, "");
+	return digits.length > 0 ? digits : "0";
+}
+
+/**
+ * 规范化占位策略：`fill` 模式下占位文本收口为纯数字（见 {@link sanitizePlaceholder}），为空回退 `0`。
  * 用于从持久化数据 / 选项读入后做一次防御性收口。
  */
 export function normalizeSkipFill(skipFill: SkipFill | undefined): SkipFill {
@@ -47,16 +59,21 @@ export function normalizeSkipFill(skipFill: SkipFill | undefined): SkipFill {
 	if (skipFill.mode === "drop") {
 		return { mode: "drop" };
 	}
-	const placeholder = skipFill.placeholder?.length ? skipFill.placeholder : "0";
-	return { mode: "fill", placeholder };
+	return { mode: "fill", placeholder: sanitizePlaceholder(skipFill.placeholder) };
 }
 
 /** 单个标题级别（H2–H6）的显示格式。 */
 export interface LevelFormat {
-	/** 序号前的自定义文本，可为空。 */
+	/** 序号前的自定义文本，可为空（如「第」）。 */
 	prefix: string;
 	/** 本级计数器的呈现形式。 */
 	numeral: NumeralStyle;
+	/**
+	 * 完整序号之后、标题间隔符之前的自定义文本，可为空（如「章」「节」）。
+	 * 与 {@link prefix} 配合可实现「第1章」式编号：`prefix`=第、`suffix`=章。
+	 * 作用于本级**完整序号**（含继承的父级序号），即 `第1.1章` 而非 `第1章.1章`。
+	 */
+	suffix: string;
 	/** 拼接各级父子序号的符号（如 `.` 得 `1.1`）。 */
 	numberSeparator: string;
 	/** 完整序号与标题文本之间的文本（如空格、`、`、`. `）。 */
@@ -96,6 +113,7 @@ export const DEFAULT_TEMPLATE: Template = {
 		h2: {
 			prefix: "",
 			numeral: "arabic",
+			suffix: "",
 			numberSeparator: ".",
 			titleSeparator: " ",
 			inherit: true,
@@ -103,6 +121,7 @@ export const DEFAULT_TEMPLATE: Template = {
 		h3: {
 			prefix: "",
 			numeral: "arabic",
+			suffix: "",
 			numberSeparator: ".",
 			titleSeparator: " ",
 			inherit: true,
@@ -110,6 +129,7 @@ export const DEFAULT_TEMPLATE: Template = {
 		h4: {
 			prefix: "",
 			numeral: "arabic",
+			suffix: "",
 			numberSeparator: ".",
 			titleSeparator: " ",
 			inherit: true,
@@ -117,6 +137,7 @@ export const DEFAULT_TEMPLATE: Template = {
 		h5: {
 			prefix: "",
 			numeral: "arabic",
+			suffix: "",
 			numberSeparator: ".",
 			titleSeparator: " ",
 			inherit: true,
@@ -124,6 +145,7 @@ export const DEFAULT_TEMPLATE: Template = {
 		h6: {
 			prefix: "",
 			numeral: "arabic",
+			suffix: "",
 			numberSeparator: ".",
 			titleSeparator: " ",
 			inherit: true,
@@ -374,7 +396,8 @@ export function buildPrefix(template: Template, level: number, counter: HeadingC
 		numberStr = renderNumeral(fmt.numeral, counter.current(level));
 	}
 
-	return fmt.prefix + numberStr + fmt.titleSeparator;
+	// 顺序：前缀 + 完整序号 + 后缀 + 标题间隔符（如「第」+「1」+「章」+「 」→「第1章 」）。
+	return fmt.prefix + numberStr + fmt.suffix + fmt.titleSeparator;
 }
 
 /**
@@ -499,8 +522,11 @@ export function stripPrefix(text: string, level: number, template: Template): st
 	// 跳级而变；每段都可能是任一在用样式（父级套各自级别样式、或样式变更前的旧样式），故用并集 token。
 	const numberPattern = fmt.inherit ? `(?:${token}${sep})*${token}` : token;
 
+	// 与 buildPrefix 对应：前缀 + 完整序号 + 后缀 + 标题间隔符。后缀（如「章」）须一并剥离。
 	const pattern = new RegExp(
-		`^${escapeRegExp(fmt.prefix)}${numberPattern}${escapeRegExp(fmt.titleSeparator)}`,
+		`^${escapeRegExp(fmt.prefix)}${numberPattern}${escapeRegExp(fmt.suffix)}${escapeRegExp(
+			fmt.titleSeparator,
+		)}`,
 	);
 
 	// 循环剥离，清掉历史上叠加的多层前缀；每轮命中至少移除一个字符，故必然收敛。
