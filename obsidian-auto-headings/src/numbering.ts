@@ -316,18 +316,18 @@ export function buildPrefix(template: Template, level: number, counter: HeadingC
 	let numberStr: string;
 	if (fmt.inherit) {
 		const seq = counter.sequence(level);
-		const ownIndex = seq.length - 1;
 		const parts: string[] = [];
 		seq.forEach((value, i) => {
-			// 标题层级跳跃（如 H2 → H4）时，缺失的中间级别计数器值为 0、从未实例化，
-			// 不参与拼接，避免产生 `1.0.1` 这类幻影 0。本级（ownIndex）始终保留。
-			if (value === 0 && i !== ownIndex) {
-				return;
-			}
 			// 每段套用其所在级别的 numeral 样式（seq[i] 对应级别 i + 2）。
 			const segLevel = i + 2;
 			const segFmt = getLevelFormat(template, segLevel) ?? fmt;
-			parts.push(renderNumeral(segFmt.numeral, value));
+			// 标题层级跳跃（如 H3 → H5）时，缺失的中间级别计数器值为 0、从未实例化。
+			// 计数器是 1 基的（不存在「第 0 节」），故缺失的中间祖先按其级别样式的「1」
+			// 呈现，使 H_n 的序号始终保有 (n−1) 段、与标题实际深度一致（H5→四段而非三段）。
+			// 该级计数器本身仍保持 0，直到真正出现该级标题才从 1 开始累加——因此后续真实的
+			// 该级标题不会被借号（如 H3→H5 在前，随后首个真实 H4 仍为 `…1` 而非 `…2`）。
+			const display = value === 0 ? 1 : value;
+			parts.push(renderNumeral(segFmt.numeral, display));
 		});
 		numberStr = parts.join(fmt.numberSeparator);
 	} else {
