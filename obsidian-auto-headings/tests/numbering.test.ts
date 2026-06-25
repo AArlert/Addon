@@ -192,7 +192,7 @@ describe("非 arabic 序号样式（回归：H3+ 继承前缀曾因父级 arabic
 			const tpl = templateWith(numeral);
 			const c = new HeadingCounter();
 			c.bump(2); // c2=1
-			c.bump(3); // c3=1（父级 1 为 arabic、本级套用 numeral）
+			c.bump(3); // c3=1（父级与本级均套用 numeral）
 			expect(stripPrefix(buildPrefix(tpl, 3, c) + "标题", 3, tpl)).toBe("标题");
 			c.bump(4); // c4=1
 			expect(stripPrefix(buildPrefix(tpl, 4, c) + "标题", 4, tpl)).toBe("标题");
@@ -205,9 +205,127 @@ describe("非 arabic 序号样式（回归：H3+ 继承前缀曾因父级 arabic
 		const once = renumberContent(content, tpl, { mode: "live" });
 		const twice = renumberContent(once, tpl, { mode: "live" });
 		expect(twice).toBe(once);
-		// 前缀应为「父级 arabic + 本级 cjk」，而非被反复重写成「1.一 1.一」。
-		expect(once).toContain("### 1.一 节");
-		expect(once).toContain("#### 1.1.一 子节");
+		// 父级各自套用其级别样式（此处各级均 cjk），而非一律阿拉伯。
+		expect(once).toContain("### 一.一 节");
+		expect(once).toContain("#### 一.一.一 子节");
+	});
+});
+
+describe("父级序号套用各自级别样式（Bug 1：继承前级时父级不再一律 arabic）", () => {
+	/** H2 arabic / H3 lower-alpha / H4 circled / H5 upper-alpha，均继承前级、点分、空格。 */
+	function mixedTemplate(): Template {
+		const mk = (numeral: Template["levels"]["h2"]["numeral"]): Template["levels"]["h2"] => ({
+			prefix: "",
+			numeral,
+			numberSeparator: ".",
+			titleSeparator: " ",
+			inherit: true,
+		});
+		return {
+			name: "mixed",
+			levels: {
+				h2: mk("arabic"),
+				h3: mk("lower-alpha"),
+				h4: mk("circled"),
+				h5: mk("upper-alpha"),
+				h6: mk("arabic"),
+			},
+			whitelist: [],
+		};
+	}
+
+	it("H3/H4/H5 的前缀让父级以各自样式呈现", () => {
+		const tpl = mixedTemplate();
+		const c = new HeadingCounter();
+		c.bump(2); // H2=1
+		expect(buildPrefix(tpl, 2, c)).toBe("1 ");
+		c.bump(3); // H3=1 → 父级 arabic「1」+ 本级 alpha「a」
+		expect(buildPrefix(tpl, 3, c)).toBe("1.a ");
+		c.bump(4); // H4=1 → 「1」「a」「①」
+		expect(buildPrefix(tpl, 4, c)).toBe("1.a.① ");
+		c.bump(5); // H5=1 → 「1」「a」「①」「A」
+		expect(buildPrefix(tpl, 5, c)).toBe("1.a.①.A ");
+	});
+
+	it("buildPrefix→stripPrefix 在混合样式下能干净还原（含跨级路径）", () => {
+		const tpl = mixedTemplate();
+		const c = new HeadingCounter();
+		c.bump(2);
+		c.bump(3);
+		c.bump(4);
+		c.bump(5);
+		const prefixed = buildPrefix(tpl, 5, c) + "标题";
+		expect(prefixed).toBe("1.a.①.A 标题");
+		expect(stripPrefix(prefixed, 5, tpl)).toBe("标题");
+	});
+
+	it("混合样式整文编号幂等（连续两次结果一致）", () => {
+		const tpl = mixedTemplate();
+		const content = ["# 文档", "## 章", "### 节", "#### 子节", "##### 细目"].join("\n");
+		const once = renumberContent(content, tpl, { mode: "live" });
+		const twice = renumberContent(once, tpl, { mode: "live" });
+		expect(twice).toBe(once);
+		expect(once).toContain("### 1.a 节");
+		expect(once).toContain("#### 1.a.① 子节");
+		expect(once).toContain("##### 1.a.①.A 细目");
+	});
+});
+
+describe("模板样式变更后不重复叠加前缀（Bug 2：改默认模板后出现重复编号）", () => {
+	function uniform(numeral: Template["levels"]["h2"]["numeral"]): Template {
+		const lvl: Template["levels"]["h2"] = {
+			prefix: "",
+			numeral,
+			numberSeparator: ".",
+			titleSeparator: " ",
+			inherit: true,
+		};
+		return {
+			name: "t",
+			levels: { h2: lvl, h3: lvl, h4: lvl, h5: lvl, h6: lvl },
+			whitelist: [],
+		};
+	}
+
+	/** 在 uniform 模板基础上把某一级换成另一种样式。 */
+	function withLevel(
+		base: Template,
+		key: keyof Template["levels"],
+		numeral: Template["levels"]["h2"]["numeral"],
+	): Template {
+		return {
+			...base,
+			levels: { ...base.levels, [key]: { ...base.levels[key], numeral } },
+		};
+	}
+
+	it("某级样式从带圈改为阿拉伯后，旧带圈前缀被剥离而非叠加", () => {
+		// 旧模板 H4 = circled，H6 也 = circled（对应用户场景：带圈样式仍在模板中存在）。
+		const oldTpl = withLevel(withLevel(uniform("arabic"), "h4", "circled"), "h6", "circled");
+		const content = ["# 文档", "## 章", "### 节", "#### 子节"].join("\n");
+		const formatted = renumberContent(content, oldTpl, { mode: "live" });
+		expect(formatted).toContain("#### 1.1.① 子节");
+
+		// 新模板把 H4 改成 arabic，但 circled 仍被 H6 使用 → 并集仍含 circled，旧前缀可被剥离。
+		const newTpl = withLevel(oldTpl, "h4", "arabic");
+		const renum = renumberContent(formatted, newTpl, { mode: "live" });
+		// 不应出现「1.1.1 1.1.① 子节」这种叠加；旧前缀被剥离，仅留新前缀。
+		expect(renum).toContain("#### 1.1.1 子节");
+		expect(renum).not.toContain("①");
+	});
+
+	it("清理已叠加多层的脏前缀（循环剥离）", () => {
+		// 模拟用户文件里已经叠加了两层前缀：H4 现为 arabic，但模板里 H6 仍用 circled，
+		// 故并集含 circled，arabic 层与 circled 层都能被逐层剥掉。
+		const newTpl = withLevel(uniform("arabic"), "h6", "circled");
+		const dirty = "1.1.1 1.1.① 少见多怪";
+		expect(stripPrefix(dirty, 4, newTpl)).toBe("少见多怪");
+	});
+
+	it("并集仅含模板在用样式：纯阿拉伯模板不会误伤以英文词开头的标题", () => {
+		const tpl = uniform("arabic");
+		// 纯阿拉伯模板的并集只有 \d+，不含字母类，故「API 设计」安全。
+		expect(stripPrefix("API 设计", 2, tpl)).toBe("API 设计");
 	});
 });
 

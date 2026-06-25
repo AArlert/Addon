@@ -303,7 +303,8 @@ export function renderNumeral(style: NumeralStyle, value: number): string {
  * 依据模板与当前计数器状态，为某级标题拼装编号前缀。
  *
  * - 继承前级 = 开：`prefix + 父级序号（以 numberSeparator 拼接）+ numberSeparator + 本级序号 + titleSeparator`
- *   （父级一律以阿拉伯数字呈现，仅本级套用 numeral 样式）。
+ *   （**每一级父级各自套用其所在级别的 numeral 样式**，而非一律阿拉伯——这样把 H3 设为字母、
+ *   H4 设为带圈时，H4 的前缀能呈现为 `1.a.①` 而非 `1.1.①`，使父级样式向下可见）。
  * - 继承前级 = 关：`prefix + 本级序号 + titleSeparator`。
  */
 export function buildPrefix(template: Template, level: number, counter: HeadingCounter): string {
@@ -323,8 +324,10 @@ export function buildPrefix(template: Template, level: number, counter: HeadingC
 			if (value === 0 && i !== ownIndex) {
 				return;
 			}
-			// 父级一律阿拉伯数字，仅本级套用 numeral 样式。
-			parts.push(i === ownIndex ? renderNumeral(fmt.numeral, value) : String(value));
+			// 每段套用其所在级别的 numeral 样式（seq[i] 对应级别 i + 2）。
+			const segLevel = i + 2;
+			const segFmt = getLevelFormat(template, segLevel) ?? fmt;
+			parts.push(renderNumeral(segFmt.numeral, value));
 		});
 		numberStr = parts.join(fmt.numberSeparator);
 	} else {
@@ -370,7 +373,7 @@ function numeralTokenPattern(style: NumeralStyle): string {
 		case "arabic":
 			return "\\d+";
 		case "cjk":
-			return "[〇零一二三四五六七八九十百千万亿]+";
+			return "[〇零一二三四五六七八九十百千万亿兆]+";
 		case "circled":
 			return "[\\u2460-\\u2473\\u3251-\\u325F\\u32B1-\\u32BF]";
 		case "lower-alpha":
@@ -380,16 +383,57 @@ function numeralTokenPattern(style: NumeralStyle): string {
 	}
 }
 
+/** 序号样式的固定枚举顺序，供构造 union token 时稳定遍历。 */
+const ALL_NUMERAL_STYLES: NumeralStyle[] = [
+	"arabic",
+	"cjk",
+	"circled",
+	"lower-alpha",
+	"upper-alpha",
+];
+
+/**
+ * 收集模板中实际使用到的全部序号样式。
+ *
+ * 始终额外纳入 `arabic`：一来历史版本的父级一律以阿拉伯数字呈现（迁移旧前缀需要），
+ * 二来默认模板即纯阿拉伯。这样剥离前缀时既能识别本模板各级的样式，也能识别样式变更前
+ * 残留的旧前缀（只要那个样式仍被模板某一级使用，或本就是 arabic）。
+ */
+function templateNumeralStyles(template: Template): Set<NumeralStyle> {
+	const set = new Set<NumeralStyle>(["arabic"]);
+	for (const lvl of [
+		template.levels.h2,
+		template.levels.h3,
+		template.levels.h4,
+		template.levels.h5,
+		template.levels.h6,
+	]) {
+		set.add(lvl.numeral);
+	}
+	return set;
+}
+
+/** 把一组序号样式拼成「能匹配其中任一样式的单段 token」的正则片段。 */
+function numeralUnionToken(styles: Set<NumeralStyle>): string {
+	const parts = ALL_NUMERAL_STYLES.filter((s) => styles.has(s)).map(numeralTokenPattern);
+	return `(?:${parts.join("|")})`;
+}
+
 /**
  * 剥离标题文本中由本模板生成的编号前缀。
  *
- * 前缀模式直接由模板的该级格式推导，因此与 {@link buildPrefix} 的输出严格对应：
- * 重复运行编号时能把上一轮写入的前缀干净地移除。若文本不以可识别的前缀开头，
- * 原样返回。
+ * 每一段序号都用「模板当前在用的全部样式」的并集 token 去匹配（见 {@link templateNumeralStyles}），
+ * 而非死扣某一级的当前样式。这样能干净地移除：
+ * - 本模板各级当前样式写出的前缀（含 {@link buildPrefix} 让父级套各自样式后的形态，如 `1.a.①`）；
+ * - **样式变更前残留的旧前缀**——例如把某级从「带圈」改成「阿拉伯」后，旧的 `1.1.①` 仍能被识别剥离，
+ *   不会被当成标题正文而在其左侧再叠加一层新前缀（即「改默认模板后出现重复编号」的根因）。
  *
- * 已知歧义：当标题本身恰以「数字 + 标题间隔符」开头（如「2024 年度总结」配合
- * 默认模板）时，会被误判为前缀而剥离——这与 README「对前缀的手动编辑属预期行为、
- * 会被覆盖」的设计一致。
+ * 为应对历史上已叠加多层的脏数据，这里**循环剥离**直至不再变化（每轮至少吃掉一段，不会死循环）。
+ *
+ * 已知歧义：当标题本身恰以「序号样式字符 + 标题间隔符」开头（如默认模板下的「2024 年度总结」，
+ * 或模板用到字母样式时以英文单词 + 空格开头的标题）时，会被误判为前缀而剥离——这与 README
+ * 「对前缀的手动编辑属预期行为、会被覆盖」的设计一致；并集只纳入模板实际用到的样式，可把误伤面
+ * 收敛到用户确实启用了的样式。
  */
 export function stripPrefix(text: string, level: number, template: Template): string {
 	const fmt = getLevelFormat(template, level);
@@ -397,18 +441,25 @@ export function stripPrefix(text: string, level: number, template: Template): st
 		return text;
 	}
 
-	const token = numeralTokenPattern(fmt.numeral);
+	const token = numeralUnionToken(templateNumeralStyles(template));
 	const sep = escapeRegExp(fmt.numberSeparator);
-	// 与 buildPrefix 的结构严格对应：继承前级时，父级序号一律为阿拉伯数字（`\d+`），
-	// 仅本级（末段）套用模板的 numeral 样式。因此前缀形如 `父1{sep}父2{sep}…{sep}本级`，
-	// 父级段数随层级与跳级（跳过为 0 的中间级）而变。若用本级 token 去匹配父级段，
-	// 当 numeral 非 arabic 时（如 cjk 的 `1.一`）会漏配，导致前缀剥不掉、被反复重写。
-	const numberPattern = fmt.inherit ? `(?:\\d+${sep})*${token}` : token;
+	// 与 buildPrefix 的结构对应：继承前级时前缀形如 `段{sep}段{sep}…{sep}段`，父级段数随层级与
+	// 跳级而变；每段都可能是任一在用样式（父级套各自级别样式、或样式变更前的旧样式），故用并集 token。
+	const numberPattern = fmt.inherit ? `(?:${token}${sep})*${token}` : token;
 
 	const pattern = new RegExp(
 		`^${escapeRegExp(fmt.prefix)}${numberPattern}${escapeRegExp(fmt.titleSeparator)}`,
 	);
-	return text.replace(pattern, "");
+
+	// 循环剥离，清掉历史上叠加的多层前缀；每轮命中至少移除一个字符，故必然收敛。
+	let out = text;
+	for (;;) {
+		const next = out.replace(pattern, "");
+		if (next === out) {
+			return out;
+		}
+		out = next;
+	}
 }
 
 /** 重新编号后的单个标题。 */
