@@ -85,6 +85,22 @@ obsidian-auto-headings/
 
 ---
 
+## 2026-06-25 — 仓库改用统一 Agent 交接约定（未触碰插件代码）
+
+**交接人**：agent（claude/claude-md-docs-1upx6r 分支）
+
+- **做了什么**：仓库新增顶层 `CLAUDE.md`（通用开发守则）与 Claude Code on the web 的 SessionStart
+  钩子（`.claude/`，远程会话自动 `npm install`）；并把「每个 Addon 用 `doc/log.md` 倒序交接」固化
+  为全仓库统一约定（见根 `CLAUDE.md` §4）。本文件即该约定在 obsidian-auto-headings 的落地，口径与
+  新增的 `chrome-tab-tree/doc/log.md` 一致。
+- **没做什么**：未改动任何插件功能代码 / 测试 / 产物；版本号不变（仍 0.3.0）。本项目顶部的
+  ⚠️ 强制规则（每周期必跑 `npm run release` 并提交 `release/`）继续有效，优先级高于通用守则。
+- **下一步**：插件开发主线不变——见下方 M3 记录的「下一步」（Milestone 4 白名单系统）。
+- **验证方式**：本次为文档/工程约定改动，无需重跑插件测试；`npm test` / `npm run lint` 维持上一周期
+  的全绿状态。
+
+---
+
 ## 2026-06-24 — 交付物规范化（产物文件夹 + 强制约定）
 
 **交接人**：agent（claude/obsidian-auto-headings-m3-t051ro 分支）
