@@ -30,7 +30,7 @@ obsidian-auto-headings/
 ├── src/                  ← 源代码（TypeScript）
 │   ├── main.ts             插件入口：生命周期、命令、防抖、事务写回、模板接线
 │   ├── parser.ts           Markdown 标题解析（ATX、代码块边界）
-│   ├── numbering.ts        计数器状态机、序号渲染器、前缀拼装、H1 降级、整文重排
+│   ├── numbering.ts        计数器状态机、序号渲染器、前缀拼装、起始层级 topLevel、整文重排
 │   ├── frontmatter.ts      单文件开关（obsidian-auto-headings: ON/OFF）读取
 │   ├── settings.ts         设置数据模型（全局开关、防抖延迟）
 │   ├── settings/
@@ -82,6 +82,45 @@ obsidian-auto-headings/
 
 > 重新生成产物：在项目根运行 `npm install && npm run release`，脚本会自动把
 > `main.js`、`manifest.json`、`styles.css` 同步进 `release/`。
+
+---
+
+## 2026-06-26 — 升版 0.3.9：README 与实现对齐（补全「后缀」等过时描述）
+
+**交接人**：agent（claude/obsidian-inpage-title-compat-rc1emf 分支）
+
+**用户诉求**：(1) 重申「做了更改就升版本号，哪怕功能没动」，本周期升到 **0.3.9**（0.3.* 全程
+属 Milestone 3 的持续打磨迭代，`*` 可一直递增，直到 M3 满意无明显 bug）。(2) README 多处仍按
+**加入「后缀」字段之前**的旧规格描述（如「前缀/序号/序号间隔符/标题间隔符/继承前级」缺了「后缀」），
+要求对照 `log.md` 与源代码**交叉审查并更正**，让 README 与实际实现一致。
+
+**做了什么**：
+1. **版本号**：`package.json` / `manifest.json` / `versions.json` / `package-lock.json` / `release/manifest.json`
+   全部 0.3.8 → **0.3.9**；`npm run release` 重新生成 `release/`。
+2. **README 对照源码（`numbering.ts` 的 `LevelFormat`/`Template`/`DEFAULT_TEMPLATE`、`schema.ts` 的
+   `serializeTemplate`）逐处更正**：
+   - §3.6 字段数「五个」→「**六个**」结构化字段（prefix / numeral / **suffix** / numberSeparator /
+     titleSeparator / inherit）；字段说明同步补 `suffix`、`levels.h1`、`topLevel`、`skipFill`。
+   - §3.6「字段如何组合」示例块表头补 **后缀** 列，新增「第1.1章」示例行 + 后缀语义注释。
+   - §3.6 两份 JSON 示例（学术风格 / 默认）补全每级 `suffix`、新增 `h1` 级、补模板级 `skipFill`/
+     `topLevel`，字段顺序对齐 `serializeTemplate` 实际落盘输出。
+   - §3.6 设置 GUI ASCII 布局图补 **后缀** 列、加 H1 置灰行、加「起始编号层级」下拉与「跳级缺失
+     层级 / 占位字符」底栏，与实际面板一致。
+   - §4 存储分层表：`data.json` 内容删去**白名单**（白名单随模板存于 `templates/*.json`，非 data.json）。
+   - §4 架构图：`TemplateStore.ts` 归位到 `templates/`（与 `schema.ts` 同级）、`PathRuleStore` 标注
+     「M5 规划，尚未实现」。
+   - §5 Roadmap M3：schema 字段列表补 `suffix` 与模板级 `topLevel`/`skipFill`；编辑面板「五级×五列」
+     → 「六级 H1–H6 × 六列〔含后缀〕+ 起始层级下拉 + 跳级占位」。
+   - `log.md` 目录结构注释里过时的「H1 降级」→「起始层级 topLevel」（`demoteStrayH1s` 已于 0.3.7 移除）。
+
+**没做什么**：未改任何**源代码 / 测试 / 行为**（纯文档 + 版本号 + 重生产物）；历史日志条目里的
+「H1 降级」等描述属当时记录，**刻意保留**不改写。未触碰白名单（M4）、按路径选模板（M5）。
+
+**下一步**：Milestone 4 白名单系统（README §3.7），接法见下方 0.3.7 记录的「下一步」。
+
+**验证方式**：`cd obsidian-auto-headings && npm test`（92 passed）、`npm run lint`、
+`npm run format:check` 全绿；`npm run release` 后 `git status` 见 `release/` 与各版本文件更新。
+人工对照：README §3.6/§4 的字段、JSON、GUI 图、存储表均含「后缀」且与 `numbering.ts`/`schema.ts` 一致。
 
 ---
 

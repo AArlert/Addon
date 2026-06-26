@@ -217,7 +217,7 @@ H3                →  c3=1            →    2.1 标题   ← 未跳号
 
 **模板**是一个具名配置对象，为 H1–H6 各级定义编号的显示格式与该模板的白名单。模板的创建、编辑、删除**完全在插件设置 GUI 中进行**，不涉及任何 YAML 或 frontmatter。
 
-每一级的格式由五个**结构化字段**组成（GUI 列序：前缀 → 序号 → 序号间隔符 → 后缀 → 标题间隔符 → 继承前级）：
+每一级的格式由六个**结构化字段**组成（GUI 列序：前缀 → 序号 → 序号间隔符 → 后缀 → 标题间隔符 → 继承前级）：
 
 | 字段 | 含义 | 示例 |
 |------|------|------|
@@ -257,17 +257,20 @@ H3                →  c3=1            →    2.1 标题   ← 未跳号
 通过组合这些字段即可覆盖常见排版需求，例如：
 
 ```
-前缀  序号样式  序号间隔符  标题间隔符  继承前级  →   写入效果
-────  ───────  ─────────  ──────────  ───────       ──────────
-（空）  cjk      （不适用）   、          开        →   一、标题
-（空）  cjk      （不适用）   （空格）     开        →   一 标题
-（空）  cjk      （不适用）   . （点+空格） 开        →   一. 标题
-（空）  arabic   .           （空格）     开        →   1.1 标题
-（空）  arabic   .           . （点+空格） 开        →   1.1. 标题
-（空）  lower-alpha （不适用） )           关        →   a) 标题
+前缀  序号样式     序号间隔符  后缀  标题间隔符   继承前级  →   写入效果
+────  ──────────  ─────────  ────  ──────────  ───────       ──────────
+（空） cjk         （不适用）  （空） 、           开        →   一、标题
+（空） cjk         （不适用）  （空） （空格）      开        →   一 标题
+（空） cjk         （不适用）  （空） . （点+空格）  开        →   一. 标题
+（空） arabic      .          （空） （空格）      开        →   1.1 标题
+（空） arabic      .          （空） . （点+空格）  开        →   1.1. 标题
+（空） lower-alpha （不适用）  （空） )            关        →   a) 标题
+第    arabic      .          章    （空格）      开        →   第1.1章 标题
 ```
 
-> 注：序号间隔符仅在存在父级拼接时显现（H2 无父级，故 `一、` 不含间隔符；H3 起才出现 `1.1`、`1-1` 中的间隔符）。
+> 注 1：序号间隔符仅在存在父级拼接时显现（H2 无父级，故 `一、` 不含间隔符；H3 起才出现 `1.1`、`1-1` 中的间隔符）。
+>
+> 注 2：**后缀**位于完整序号之后、标题间隔符之前，作用于本级**完整序号**（含继承的父级序号），故「第」+「章」得 `第1.1章` 而非 `第1章.1章`；与前缀配合实现「第N章」式编号。
 
 **模板文件存储位置：**
 
@@ -293,26 +296,31 @@ H3                →  c3=1            →    2.1 标题   ← 未跳号
 {
   "name": "学术风格",
   "levels": {
-    "h2": { "prefix": "", "numeral": "cjk",    "numberSeparator": ".", "titleSeparator": "、", "inherit": true },
-    "h3": { "prefix": "", "numeral": "arabic", "numberSeparator": ".", "titleSeparator": " ",  "inherit": true },
-    "h4": { "prefix": "", "numeral": "lower-alpha", "numberSeparator": ".", "titleSeparator": ") ", "inherit": true },
-    "h5": { "prefix": "", "numeral": "lower-alpha", "numberSeparator": ".", "titleSeparator": ") ", "inherit": false },
-    "h6": { "prefix": "", "numeral": "arabic", "numberSeparator": ".", "titleSeparator": ". ", "inherit": true }
+    "h1": { "prefix": "", "numeral": "arabic", "suffix": "", "numberSeparator": ".", "titleSeparator": " ",  "inherit": true },
+    "h2": { "prefix": "", "numeral": "cjk",    "suffix": "", "numberSeparator": ".", "titleSeparator": "、", "inherit": true },
+    "h3": { "prefix": "", "numeral": "arabic", "suffix": "", "numberSeparator": ".", "titleSeparator": " ",  "inherit": true },
+    "h4": { "prefix": "", "numeral": "lower-alpha", "suffix": "", "numberSeparator": ".", "titleSeparator": ") ", "inherit": true },
+    "h5": { "prefix": "", "numeral": "lower-alpha", "suffix": "", "numberSeparator": ".", "titleSeparator": ") ", "inherit": false },
+    "h6": { "prefix": "", "numeral": "arabic", "suffix": "", "numberSeparator": ".", "titleSeparator": ". ", "inherit": true }
   },
   "whitelist": [
     { "text": "目录",     "match": "exact" },
     { "text": "附录",     "match": "subtree" },
     { "text": "参考文献", "match": "exact" }
-  ]
+  ],
+  "skipFill": { "mode": "fill", "placeholder": "0" },
+  "topLevel": 2
 }
 ```
 
-字段说明：
+字段说明（字段顺序与磁盘上 `serializeTemplate` 的输出一致）：
 
 - `name`：模板显示名（`default.json` 固定显示为"默认"）。
-- `levels.h2`…`levels.h6`：每级五个结构化字段——`prefix`、`numeral`、`numberSeparator`、`titleSeparator`、`inherit`（含义见上表；`inherit` 缺省视为 `true`）。
+- `levels.h1`…`levels.h6`：H1–H6 各级，每级六个结构化字段——`prefix`、`numeral`、`suffix`、`numberSeparator`、`titleSeparator`、`inherit`（含义见上表；`suffix` 缺省为空、`inherit` 缺省视为 `true`）。`h1` 始终存在，是否对其编号由 `topLevel` 决定。
 - `numeral` 合法枚举：`arabic`、`cjk`、`circled`、`lower-alpha`、`upper-alpha`（首版支持的序号样式，后续可扩展如罗马数字）。
 - `whitelist`：本模板生效时使用的白名单条目数组；每个条目含 `text`（词语）与 `match`（匹配方式，枚举 `exact`/`partial`/`subtree`，缺省视为 `exact`）（见 [3.7](#37-白名单系统)）。
+- `skipFill`：**模板级**跳级占位策略——`{ "mode": "fill", "placeholder": "0" }`（补位，占位仅限数字）或 `{ "mode": "drop" }`（不补位）；缺失/非法回退默认补 `0`（见上表与 [3.6 模板级字段](#36-模板系统)）。
+- `topLevel`：**模板级**起始编号层级（1–6，缺失回退 H2）；比它浅的标题不编号、不被改写（见 [3.4](#34-起始编号层级与多个-h1)）。
 
 **默认模板（`default.json`）的内容**——纯阿拉伯多级点分（即 `1` / `1.1` / `1.1.1` …）：
 
@@ -320,18 +328,21 @@ H3                →  c3=1            →    2.1 标题   ← 未跳号
 {
   "name": "默认",
   "levels": {
-    "h2": { "prefix": "", "numeral": "arabic", "numberSeparator": ".", "titleSeparator": " ", "inherit": true },
-    "h3": { "prefix": "", "numeral": "arabic", "numberSeparator": ".", "titleSeparator": " ", "inherit": true },
-    "h4": { "prefix": "", "numeral": "arabic", "numberSeparator": ".", "titleSeparator": " ", "inherit": true },
-    "h5": { "prefix": "", "numeral": "arabic", "numberSeparator": ".", "titleSeparator": " ", "inherit": true },
-    "h6": { "prefix": "", "numeral": "arabic", "numberSeparator": ".", "titleSeparator": " ", "inherit": true }
+    "h1": { "prefix": "", "numeral": "arabic", "suffix": "", "numberSeparator": ".", "titleSeparator": " ", "inherit": true },
+    "h2": { "prefix": "", "numeral": "arabic", "suffix": "", "numberSeparator": ".", "titleSeparator": " ", "inherit": true },
+    "h3": { "prefix": "", "numeral": "arabic", "suffix": "", "numberSeparator": ".", "titleSeparator": " ", "inherit": true },
+    "h4": { "prefix": "", "numeral": "arabic", "suffix": "", "numberSeparator": ".", "titleSeparator": " ", "inherit": true },
+    "h5": { "prefix": "", "numeral": "arabic", "suffix": "", "numberSeparator": ".", "titleSeparator": " ", "inherit": true },
+    "h6": { "prefix": "", "numeral": "arabic", "suffix": "", "numberSeparator": ".", "titleSeparator": " ", "inherit": true }
   },
   "whitelist": [
     // M3 占位三条；Milestone 4 扩充为中英常用结构性标题词表（见 3.7）
     { "text": "目录",     "match": "exact" },
     { "text": "附录",     "match": "exact" },
     { "text": "参考文献", "match": "exact" }
-  ]
+  ],
+  "skipFill": { "mode": "fill", "placeholder": "0" },
+  "topLevel": 2
 }
 ```
 
@@ -356,24 +367,27 @@ H3                →  c3=1            →    2.1 标题   ← 未跳号
 模板区顶部提供 **[+ 新增模板]** 与 **[删除]** 按钮。所有模板（含"默认"）均可在 GUI 编辑：每个模板各占一行，右侧有一个 **[编辑 ▸]** 按钮，点击后该行**向下展开**行内编辑面板（再次点击折叠）；展开的面板顶部有「起始编号层级」下拉，其下以 H1–H6 六行、每行（前缀 / 序号 / 序号间隔符 / 后缀 / 标题间隔符 / 继承前级）的形式编辑，并附实时预览；低于起始编号层级的行会置灰（不参与编号）。
 
 ```
-┌─ 模板 ──────────────────────────────────────────────────────────────────────────┐
-│  [+ 新增模板]                                                                    │
-│                                                                                  │
-│  默认                                                            [删除]ⁿ⁄ₐ [编辑 ▸] │
-│  学术风格                                                        [删除]  [编辑 ▾] │
-│  ┌────────────────────────────────────────────────────────────────────────────┐ │
-│  │ 级别 │ 前缀 │ 序号       │ 序号间隔符 │ 标题间隔符 │ 继承前级 │ 预览        │ │
-│  │ ─────┼──────┼────────────┼───────────┼───────────┼─────────┼───────────    │ │
-│  │ H2   │      │ [中文   ▼] │  .         │  、        │ [✓]      │ 一、 二、    │ │
-│  │ H3   │      │ [阿拉伯 ▼] │  .         │ （空格）   │ [✓]      │ 1.1 1.2 2.1 │ │
-│  │ H4   │      │ [字母a  ▼] │  .         │  )         │ [✓]      │ 1.1.a 1.1.b │ │
-│  │ H5   │      │ [字母a  ▼] │  .         │  )         │ [ ]      │ a) b) c)    │ │
-│  │ H6   │      │ [阿拉伯 ▼] │  .         │  .         │ [✓]      │ 1.  2.      │ │
-│  │                                                       白名单：[编辑…]       │ │
-│  └────────────────────────────────────────────────────────────────────────────┘ │
-│  技术文档                                                        [删除]  [编辑 ▸] │
-└──────────────────────────────────────────────────────────────────────────────────┘
-  （"默认"模板的删除按钮不可用ⁿ⁄ₐ；其余模板可删除。「继承前级」为各级独立的勾选框，默认勾选）
+┌─ 模板 ──────────────────────────────────────────────────────────────────────────────────┐
+│  [+ 新增模板]                                                                            │
+│                                                                                          │
+│  默认                                                                    [删除]ⁿ⁄ₐ [编辑 ▸] │
+│  学术风格                                                                [删除]  [编辑 ▾] │
+│  ┌──────────────────────────────────────────────────────────────────────────────────┐  │
+│  │ 起始编号层级：[ H2 ▼ ]                                                            │  │
+│  │ 级别 │ 前缀 │ 序号       │ 序号间隔符 │ 后缀 │ 标题间隔符 │ 继承前级 │ 预览        │  │
+│  │ ─────┼──────┼────────────┼───────────┼──────┼───────────┼─────────┼───────────    │  │
+│  │ H1   │（低于起始编号层级，整行置灰、不参与编号）                                  │  │
+│  │ H2   │      │ [中文   ▼] │  .         │      │  、        │ [✓]      │ 一、 二、    │  │
+│  │ H3   │      │ [阿拉伯 ▼] │  .         │      │ （空格）   │ [✓]      │ 1.1 1.2 2.1 │  │
+│  │ H4   │      │ [字母a  ▼] │  .         │      │  )         │ [✓]      │ 1.1.a 1.1.b │  │
+│  │ H5   │      │ [字母a  ▼] │  .         │      │  )         │ [ ]      │ a) b) c)    │  │
+│  │ H6   │      │ [阿拉伯 ▼] │  .         │      │  .         │ [✓]      │ 1.  2.      │  │
+│  │ 跳级缺失层级：[ 补位 ▼ ]  占位字符：[ 0 ]               白名单：[编辑…]           │  │
+│  └──────────────────────────────────────────────────────────────────────────────────┘  │
+│  技术文档                                                                [删除]  [编辑 ▸] │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+  （"默认"模板的删除按钮不可用ⁿ⁄ₐ；其余模板可删除。「继承前级」为各级独立的勾选框，默认勾选。
+   「后缀」列位于序号间隔符与标题间隔符之间；展开面板顶部为「起始编号层级」下拉、底部为「跳级缺失层级 / 占位字符」与白名单编辑入口）
 ```
 
 > 展开的编辑面板内也包含本模板的**白名单编辑器**（见 [3.7](#37-白名单系统)），因为白名单是模板级配置。
@@ -511,21 +525,23 @@ Editor onChange 事件触发
 │    Markdown │           │  • 起始层级 topLevel │      │  • 全局开关          │
 │    解析标题 │           │   （双模式）       │      │  • 模板编辑器        │
 │  • 剥离现有 │  ──────►  │  • 应用模板字段    │      │   （行内展开+白名单）│
-│    前缀     │           │  • 拼接序号/间隔符 │      │  • 路径规则管理器    │
+│    前缀     │           │  • 拼接序号/间隔符 │      │  • 路径规则管理器(M5)│
 │  • 识别代码 │           │  • 将前缀写回      │      └──────────────────────┘
 │    块边界   │           │    编辑器          │
 └─────────────┘           └────────────────────┘
 
-settings/
-├── TemplateStore.ts     // 模板文件的增删改查（读写 templates/*.json，目录与默认模板自动创建）
-└── PathRuleStore.ts     // 路径 → 模板 的解析（白名单随模板，不单独存储）
+templates/                  // 模板的 schema 与文件 CRUD（已落地，M3）
+├── schema.ts            // 模板校验 / 序列化 / 文件名安全化
+└── TemplateStore.ts     // 模板文件的增删改查（读写 templates/*.json，目录与默认模板自动创建）
+
+PathRuleStore.ts            // 路径 → 模板 的解析（白名单随模板，不单独存储）——M5 规划，尚未实现
 ```
 
 **存储分层：**
 
 | 存储位置 | 内容 | 读写方式 |
 |----------|------|----------|
-| `data.json` | 路径规则、白名单、防抖延迟等插件设置 | `plugin.loadData()` / `plugin.saveData()` |
+| `data.json` | 路径规则（M5）、防抖延迟等插件设置（**不含白名单**——白名单随模板存于 `templates/*.json`） | `plugin.loadData()` / `plugin.saveData()` |
 | `templates/*.json` | 各模板定义文件，每个模板一个文件 | `app.vault.adapter` 文件 API（`read` / `write` / `exists` / `mkdir`） |
 
 ---
@@ -553,13 +569,13 @@ settings/
 - [x] 读取 frontmatter 单文件开关 `obsidian-auto-headings`（ON/OFF，大小写敏感，非法值忽略）
 
 ### Milestone 3 — 模板系统
-- [x] 模板 schema 定义与校验（结构化字段：prefix / numeral / numberSeparator / titleSeparator / inherit）
+- [x] 模板 schema 定义与校验（每级结构化字段：prefix / numeral / suffix / numberSeparator / titleSeparator / inherit；模板级字段：topLevel / skipFill）
 - [x] 首次启用插件时自动创建 `templates/` 目录并写入 `default.json`（使用 `app.vault.adapter`）
 - [x] 序号渲染器（arabic / cjk / circled / lower-alpha / upper-alpha）
 - [x] 序号间隔符跨级拼接 + 标题间隔符拼装
 - [x] 「继承前级」字段（默认开启，可关闭；关闭后该级不拼父级序号，如 H5 输出 `a)`、`b)`）
 - [x] 设置 GUI 中的模板增删（[+ 新增模板] / [删除]）
-- [x] 所有模板行内可展开编辑面板（右侧 [编辑] 按钮，向下展开，五级×五列〔含继承前级〕 + 实时预览）
+- [x] 所有模板行内可展开编辑面板（右侧 [编辑] 按钮，向下展开，六级 H1–H6 × 六列〔含后缀、继承前级〕+ 起始编号层级下拉 + 跳级占位 + 实时预览）
 - [x] 重命名模板时自动更新文件名（`data.json` 路径规则引用的同步留待 M5 接入）
 
 ### Milestone 4 — 白名单系统（模板级）
