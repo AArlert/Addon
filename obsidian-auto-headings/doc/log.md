@@ -3,7 +3,15 @@
 本文件用于多 agent / 多人协作的**握手交接**：每个开发周期结束时，记录「做了什么、
 没做什么、下一步干嘛」，让接手者无需通读全部代码即可继续。倒序排列（最新在最上）。
 
-> 配套文档：完整需求与功能规格见 [`README.md`](./README.md)（含 7 个 Milestone 的 Roadmap）。
+**接手前怎么读**（见根 [`CLAUDE.md`](../../CLAUDE.md) §4）：先读 [`status.jsonl`](./status.jsonl)
+（状态索引）→ 再读**本文件最新一块**的「下一步」即可上手；需要更早来龙去脉时才按需往下翻历史块，
+**不必从头通读**。
+
+> 配套文档：完整需求与功能规格见 [`spec.md`](./spec.md)（含 7 个 Milestone 的 Roadmap）；
+> 面向读者的简介见上一级 [`../README.md`](../README.md)。
+>
+> **注**：本日志**历史条目**中出现的「README §X.Y」均指原规格文档——它已更名为 `spec.md`
+> （章节号不变），请按 `spec.md` 对应章节查阅。
 
 ---
 
@@ -44,9 +52,11 @@ obsidian-auto-headings/
 │   ├── schema.test.ts
 │   ├── frontmatter.test.ts
 │   └── settings.test.ts
+├── README.md             ← 面向读者的简介（当前功能 + Milestone 概览，入口文档）
 ├── doc/                  ← 文档
-│   ├── README.md           需求/规格/Roadmap（原项目根 README，已移入此处）
-│   └── log.md              本文件：开发日志与交接协议
+│   ├── spec.md             详细需求/规格/Roadmap（原 doc/README.md，已更名）
+│   ├── log.md              本文件：开发日志与交接协议（详细）
+│   └── status.jsonl        状态索引：首行总览 + 每周期一句话概括（接手先读）
 ├── release/              ← 可分发插件文件（交付物，可直接丢进 .obsidian 测试）★每周期必更新
 │   ├── main.js             生产构建（npm run release 生成并同步）
 │   ├── manifest.json
@@ -82,6 +92,39 @@ obsidian-auto-headings/
 
 > 重新生成产物：在项目根运行 `npm install && npm run release`，脚本会自动把
 > `main.js`、`manifest.json`、`styles.css` 同步进 `release/`。
+
+---
+
+## 2026-06-26 — 协作机制：文档结构重整 + status.jsonl 状态索引（不升版本号）
+
+**交接人**：agent（claude/obsidian-inpage-title-compat-rc1emf 分支）
+
+**用户诉求**（仓库级协作机制，**非对本插件功能的更新，故不升版本号**，仍 0.3.9）：
+1. 在根 `CLAUDE.md` 写清「版本号里程碑内持续打磨」原则（`0.M.*`，`*` 持续递增直到该里程碑满意）。
+2. log.md 越来越长——约定接手时**只读最新一块**，按需再翻历史。
+3. 新建 `doc/status.jsonl` 极简状态索引（首行总览 + 每周期一句话概括，倒序），接手**先读它**；
+   并把历史 log 概括进去。
+4. 把 `doc/README.md`（详细规格）**更名为 `doc/spec.md`**，在 Addon 根**新建简短 `README.md`**
+   （当前功能 + Milestone 概览）。以上一并写进 `CLAUDE.md`，并对 `chrome-tab-tree` 同样应用。
+
+**做了什么**：
+- **根 `CLAUDE.md`**：§4 改为「三层记忆」读序（status.jsonl → log.md 最新块 → spec.md）+ 每周期同维护
+  log+status；新增 §4.1「文档结构」表（README / spec / log / status 职责）；新增 §5.1「版本号里程碑内
+  持续打磨」（含「协作机制类改动不升版本」例外）；§7 速览表链接改指 README/spec/log/status。
+- **本 Addon**：`doc/README.md` → `doc/spec.md`（`git mv` 保留历史）；新建根 `README.md`（简介 + 当前
+  功能 + Milestone 概览）；新建 `doc/status.jsonl`（首行 0.3.9 总览 + 14 行历史概括）。log.md 顶部
+  补「接手怎么读」与「历史条目中的『README §X』即 spec.md」消歧；目录结构树更新为 README/spec/status。
+  release/README.md、status.jsonl 内的旧 `README §X` 指针改为 `spec.md`。
+- **chrome-tab-tree**：同样把根 `README.md` → `doc/spec.md`、新建简短根 `README.md`、新建 `doc/status.jsonl`；
+  log.md 指针改 spec.md。
+
+**没做什么**：**未升版本号**（协作机制类，0.3.9 不变）；未改任何源码 / 测试 / 行为 / 产物二进制；
+历史 log 块内的「README §X」prose 不逐条改写（用顶部消歧说明统一覆盖）。
+
+**下一步**：Milestone 4 白名单系统（`spec.md` §3.7），接法见下方 0.3.7 记录的「下一步」。
+
+**验证方式**：`cd obsidian-auto-headings && npm test`（92 passed）、`npm run lint`、`npm run format:check`
+全绿（仅文档/结构改动，行为不变）。人工：`doc/` 下应有 spec.md / log.md / status.jsonl，根有简短 README.md。
 
 ---
 

@@ -1,0 +1,2 @@
+{"type":"status","version":"—（未开始编码）","milestone":"M0 项目初始化（未开始）","next":"按 spec.md §6 Roadmap 从 M0 起步：manifest.json(MV3)、Service Worker 骨架、侧边面板骨架、_locales 基础文案；建好 package.json 后加入 .claude/hooks/session-start.sh","updated":"2026-06-25","note":"状态索引：首行为当前总览，其下每行一句话概括一个工作周期（倒序）。详细交接见 log.md。"}
+{"type":"log","date":"2026-06-25","version":"—","summary":"建立交接记忆文件，纳入仓库统一 agent 交接约定；项目目前仅有设计文档（README），无任何代码与 package.json。"}
