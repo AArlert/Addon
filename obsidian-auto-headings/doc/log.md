@@ -85,6 +85,56 @@ obsidian-auto-headings/
 
 ---
 
+## 2026-06-26 — 修复两个实测 bug：改样式后前缀叠加 + 改模板后不更新（0.3.8）
+
+**交接人**：agent（claude/obsidian-headings-format-bugs-4i4slj 分支）
+
+**用户在 0.3.7 实测反馈两个 bug**：
+1. 已格式化后，在「默认」模板里调整格式，会在文件里**追加新前缀而非改写旧的**，出现
+   「1.2.1 1.二.1」这种叠加。
+2. 有时调整格式后**文件压根没更新、什么改动都没有**。
+
+**根因 & 修复**：
+
+- **Bug 1（前缀叠加）**：`stripPrefix` 的剥离 token 只取「模板当前在用的样式」（+ arabic）。
+  当把某级（如 H3）从中文改回阿拉伯、且**模板里再无任何级使用中文**时，cjk 字符类从 token 里
+  消失，旧的 `1.二.1` 配不上、剥不掉，于是被当成正文、左侧再叠一层新 `1.2.1`。这正是 0.3.2 日志
+  里「有意的边界」收敛取舍，现成了用户实打实的 bug。
+  **修复**（`numbering.ts`）：把剥离拆成**父级段**与**末段**两类 token——
+  - 父级（内层）段 `innerSegmentToken`：纳入**全部**序号样式。父级段恒被序号间隔符夹住，放宽到
+    全样式不会误伤正文，却能清掉「样式被改走后残留」的父级旧段（如 `1.二.1` 里的 `二`）。
+  - 末段 `lastSegmentToken`：arabic/cjk/带圈**始终**纳入（误伤面小，与长期存在的「2024 总结会被
+    arabic 剥」一致），字母样式（lower/upper-alpha）**仅在模板实际使用时**纳入——否则会把
+    「API 设计」「TODO 列表」这类英文词开头标题误剥。
+  - 删除旧的 `templateNumeralStyles` / `numeralUnionToken`，新增 `ALWAYS_STRIPPABLE_STYLES` /
+    `unionToken` / `innerSegmentToken` / `lastSegmentToken`。循环剥离与幂等性不变。
+  - **取舍**：字母样式作为**末段**被改走（如 H3=字母→改回阿拉伯）后的残留仍剥不掉——这与
+    「英文词开头标题不被误剥」直接冲突，无法两全；选择保护英文标题（更常见）。父级位置的字母
+    残留则已能剥。
+
+- **Bug 2（调整后不更新）**：在设置面板改模板只调 `templateStore.save()` 写盘，**从不触发当前
+  打开文件的重新编号**，须等用户在编辑器里再敲一下才生效，故看起来「没更新」。
+  **修复**：`main.ts` 新增 `renumberActiveFile()`（取活动 MarkdownView、跑同一套 `applyRenumber`，
+  受全局开关/frontmatter 约束、无活动编辑器或无变化时静默跳过）；`SettingsTab` 在每处模板改动
+  （网格各字段 `saveAndPreview`、起始编号层级、跳级策略、占位字符）保存后调用它，使格式调整即时
+  反映到当前笔记。
+
+**做了什么**：上述两处源码修复；`numbering.test.ts` 新增 4 条回归（中文改回阿拉伯不叠加、直接
+清理 `1.2.1 1.二.1` 脏前缀、纯阿拉伯不误伤 `API 设计`/`TODO 列表`、内层放宽不误伤 `a.b.c 记法`），
+共 **92 passed**；版本 0.3.7 → 0.3.8，重建 `release/`。
+
+**没做什么**：未碰白名单（M4）、按路径选模板（M5）；字母样式作为**末段**被改走后的残留未处理
+（见上「取舍」，刻意）；README 未改（剥离实现细节非用户可见规格，行为仍符合「手动前缀会被覆盖」）。
+
+**下一步**：Milestone 4 白名单系统（README §3.7），接法见下方 0.3.7 记录的「下一步」。
+
+**验证方式**：`cd obsidian-auto-headings && npm test`（92 passed）、`npm run lint`、
+`npm run format:check` 全绿；`npm run release` 后 `git status` 见 `release/` 更新。Obsidian 实测：
+默认模板某级改成中文再改回阿拉伯，旧 `1.二.1` 被改写为 `1.2.1`（不叠加）；在设置面板改格式时，
+当前打开的笔记即时重新编号。
+
+---
+
 ## 2026-06-25 — 起始编号层级 topLevel 取代 H1 降级；占位限数字；列序调整（0.3.7）
 
 **交接人**：agent（claude/heading-numbering-fourth-level-76p04p 分支）

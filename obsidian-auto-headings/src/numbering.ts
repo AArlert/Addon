@@ -488,35 +488,19 @@ const ALL_NUMERAL_STYLES: NumeralStyle[] = [
 ];
 
 /**
- * 收集模板中实际使用到的全部序号样式。
+ * **低误伤风险、可「无条件」参与剥离的样式**：阿拉伯 / 中文 / 带圈。
  *
- * 始终额外纳入 `arabic`：一来历史版本的父级一律以阿拉伯数字呈现（迁移旧前缀需要），
- * 二来默认模板即纯阿拉伯。这样剥离前缀时既能识别本模板各级的样式，也能识别样式变更前
- * 残留的旧前缀（只要那个样式仍被模板某一级使用，或本就是 arabic）。
+ * 这些样式即便当前模板已不再使用，也极少与真实标题的开头冲突（汉字数字/带圈数字开头且
+ * 紧跟间隔符的标题罕见，与长期存在的「`2024 总结` 会被 arabic 剥」一致）。因此始终纳入，
+ * 以便清理**样式被改走后残留的旧前缀**——例如把某级中文改回阿拉伯后，文件里遗留的
+ * 「1.二.1」必须仍能被剥离，否则会被当作正文、左侧再叠一层新前缀（用户报告的
+ * 「1.2.1 1.二.1」叠加 bug）。字母样式（lower/upper-alpha）误伤面大（会吃掉「API 设计」这类
+ * 以英文词开头的标题），故**不**无条件纳入，仅在模板实际使用时才参与（见 {@link lastSegmentToken}）。
  */
-function templateNumeralStyles(template: Template): Set<NumeralStyle> {
-	const set = new Set<NumeralStyle>(["arabic"]);
-	for (const lvl of [
-		template.levels.h1,
-		template.levels.h2,
-		template.levels.h3,
-		template.levels.h4,
-		template.levels.h5,
-		template.levels.h6,
-	]) {
-		set.add(lvl.numeral);
-	}
-	return set;
-}
+const ALWAYS_STRIPPABLE_STYLES: NumeralStyle[] = ["arabic", "cjk", "circled"];
 
-/**
- * 把一组序号样式拼成「能匹配其中任一样式的单段 token」的正则片段。
- *
- * 当占位策略为 `fill` 时，额外把占位字面量纳入并集——否则用户自定义的占位字符
- * （如 `-`、`*`）写出的缺失段无法被识别，导致剥离失败、重复编号时叠加前缀。
- * （`0`/`1` 等数字占位本就被 arabic token `\d+` 覆盖，此处加入无害。）
- */
-function numeralUnionToken(styles: Set<NumeralStyle>, skipFill: SkipFill): string {
+/** 把一组序号样式（外加 fill 占位字面量）拼成「能匹配其中任一样式的单段 token」的正则片段。 */
+function unionToken(styles: Set<NumeralStyle>, skipFill: SkipFill): string {
 	const parts = ALL_NUMERAL_STYLES.filter((s) => styles.has(s)).map(numeralTokenPattern);
 	if (skipFill.mode === "fill" && skipFill.placeholder.length) {
 		parts.push(escapeRegExp(skipFill.placeholder));
@@ -525,20 +509,61 @@ function numeralUnionToken(styles: Set<NumeralStyle>, skipFill: SkipFill): strin
 }
 
 /**
+ * **内层（父级）段**的剥离 token：纳入**全部**序号样式。
+ *
+ * 父级段在生成时各自套用其所在级别的样式（见 {@link buildPrefix}），而这些样式可能在之后被
+ * 用户改动，残留的旧前缀必须仍可剥离。对父级段放宽到全样式是**安全**的——父级段恒被序号
+ * 间隔符夹在中间，真实标题极少形如「词.词.…」；而**末段**由 {@link lastSegmentToken} 收口
+ * （不含模板未使用的字母样式），故「API 设计」等以英文词开头的标题不会被误剥。
+ */
+function innerSegmentToken(skipFill: SkipFill): string {
+	return unionToken(new Set<NumeralStyle>(ALL_NUMERAL_STYLES), skipFill);
+}
+
+/**
+ * **末段（本级、最深段）**的剥离 token。
+ *
+ * 字母样式（lower/upper-alpha）**仅在模板实际使用时**纳入：否则会把「API 设计」「TODO 列表」
+ * 这类以英文词开头的标题误当作字母序号剥掉。arabic/cjk/带圈误伤风险低，**始终**纳入（见
+ * {@link ALWAYS_STRIPPABLE_STYLES}），以便清理「样式被改走后残留的旧前缀」恰好落在末段的情形。
+ */
+function lastSegmentToken(template: Template, skipFill: SkipFill): string {
+	const styles = new Set<NumeralStyle>(ALWAYS_STRIPPABLE_STYLES);
+	for (const lvl of [
+		template.levels.h1,
+		template.levels.h2,
+		template.levels.h3,
+		template.levels.h4,
+		template.levels.h5,
+		template.levels.h6,
+	]) {
+		if (lvl.numeral === "lower-alpha" || lvl.numeral === "upper-alpha") {
+			styles.add(lvl.numeral);
+		}
+	}
+	return unionToken(styles, skipFill);
+}
+
+/**
  * 剥离标题文本中由本模板生成的编号前缀。
  *
- * 每一段序号都用「模板当前在用的全部样式」的并集 token 去匹配（见 {@link templateNumeralStyles}），
- * 而非死扣某一级的当前样式。这样能干净地移除：
- * - 本模板各级当前样式写出的前缀（含 {@link buildPrefix} 让父级套各自样式后的形态，如 `1.a.①`）；
- * - **样式变更前残留的旧前缀**——例如把某级从「带圈」改成「阿拉伯」后，旧的 `1.1.①` 仍能被识别剥离，
- *   不会被当成标题正文而在其左侧再叠加一层新前缀（即「改默认模板后出现重复编号」的根因）。
+ * 前缀按「父级段 + 本级段」两类分别匹配，而非死扣某一级的当前样式：
+ * - **父级（内层）段**用 {@link innerSegmentToken}（全部样式）匹配——父级在生成时各自套用其级别
+ *   样式（见 {@link buildPrefix}），且样式可能在之后被改动而残留旧前缀；父级段恒被间隔符夹住，
+ *   放宽到全样式不会误伤正文。
+ * - **本级（末）段**用 {@link lastSegmentToken}（arabic/cjk/带圈始终纳入，字母样式仅在模板在用时纳入）
+ *   收口，避免把「API 设计」这类以英文词开头的标题误当作字母序号剥掉。
+ *
+ * 这样既能干净移除本模板当前样式写出的前缀（含 `1.a.①` 这类父级套各自样式的形态），也能移除
+ * **样式变更前残留的旧前缀**——例如把某级从「中文」改回「阿拉伯」后、模板里已无任何 cjk 级时，
+ * 旧的 `1.二.1` 仍能被识别剥离，不会被当成正文而在其左侧再叠一层新前缀（即用户报告的
+ * 「1.2.1 1.二.1」叠加 bug 的根因）。
  *
  * 为应对历史上已叠加多层的脏数据，这里**循环剥离**直至不再变化（每轮至少吃掉一段，不会死循环）。
  *
  * 已知歧义：当标题本身恰以「序号样式字符 + 标题间隔符」开头（如默认模板下的「2024 年度总结」，
  * 或模板用到字母样式时以英文单词 + 空格开头的标题）时，会被误判为前缀而剥离——这与 README
- * 「对前缀的手动编辑属预期行为、会被覆盖」的设计一致；并集只纳入模板实际用到的样式，可把误伤面
- * 收敛到用户确实启用了的样式。
+ * 「对前缀的手动编辑属预期行为、会被覆盖」的设计一致。
  */
 export function stripPrefix(text: string, level: number, template: Template): string {
 	const fmt = getLevelFormat(template, level);
@@ -546,14 +571,13 @@ export function stripPrefix(text: string, level: number, template: Template): st
 		return text;
 	}
 
-	const token = numeralUnionToken(
-		templateNumeralStyles(template),
-		normalizeSkipFill(template.skipFill),
-	);
+	const skipFill = normalizeSkipFill(template.skipFill);
+	const inner = innerSegmentToken(skipFill);
+	const last = lastSegmentToken(template, skipFill);
 	const sep = escapeRegExp(fmt.numberSeparator);
-	// 与 buildPrefix 的结构对应：继承前级时前缀形如 `段{sep}段{sep}…{sep}段`，父级段数随层级与
-	// 跳级而变；每段都可能是任一在用样式（父级套各自级别样式、或样式变更前的旧样式），故用并集 token。
-	const numberPattern = fmt.inherit ? `(?:${token}${sep})*${token}` : token;
+	// 与 buildPrefix 的结构对应：继承前级时前缀形如 `父段{sep}…{sep}父段{sep}本段`，父级段数随层级与
+	// 跳级而变；父段用宽 token（含历史样式），本段用收口 token（字母样式仅在模板在用时纳入）。
+	const numberPattern = fmt.inherit ? `(?:${inner}${sep})*${last}` : last;
 
 	// 与 buildPrefix 对应：前缀 + 完整序号 + 后缀 + 标题间隔符。后缀（如「章」）须一并剥离。
 	const pattern = new RegExp(

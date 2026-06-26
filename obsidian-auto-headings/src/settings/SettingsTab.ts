@@ -172,6 +172,7 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 				dd.setValue(String(top)).onChange(async (value) => {
 					template.topLevel = normalizeTopLevel(Number(value));
 					await this.plugin.templateStore.save(template);
+					this.plugin.renumberActiveFile();
 					this.display(); // 重新渲染以更新各级行的「生效/置灰」与预览。
 				});
 			});
@@ -282,6 +283,7 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 											skipFill.mode === "fill" ? skipFill.placeholder : "0",
 									};
 						await this.plugin.templateStore.save(template);
+						this.plugin.renumberActiveFile();
 						this.display(); // 重新渲染以显示/隐藏占位输入框。
 					}),
 			);
@@ -304,6 +306,7 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 							}
 							template.skipFill = { mode: "fill", placeholder: digits };
 							await this.plugin.templateStore.save(template);
+							this.plugin.renumberActiveFile();
 						}),
 				);
 		}
@@ -343,6 +346,8 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 			el.setText(this.previewText(template, level));
 		}
 		await this.plugin.templateStore.save(template);
+		// 模板改动后立即对当前活动文件重新编号，使格式调整即时可见（修复「调整后没更新」）。
+		this.plugin.renumberActiveFile();
 	}
 
 	/** 计算某级的预览字符串（取前三个同级序号示例）；低于起始编号层级时显示「（不编号）」。 */
