@@ -3,7 +3,15 @@
 本文件用于多 agent / 多人协作的**握手交接**：每个开发周期结束时，记录「做了什么、
 没做什么、下一步干嘛」，让接手者无需通读全部代码即可继续。倒序排列（最新在最上）。
 
-> 配套文档：完整需求与功能规格见 [`README.md`](./README.md)（含 7 个 Milestone 的 Roadmap）。
+**接手前怎么读**（见根 [`CLAUDE.md`](../../CLAUDE.md) §4）：先读 [`status.jsonl`](./status.jsonl)
+（状态索引）→ 再读**本文件最新一块**的「下一步」即可上手；需要更早来龙去脉时才按需往下翻历史块，
+**不必从头通读**。
+
+> 配套文档：完整需求与功能规格见 [`spec.md`](./spec.md)（含 7 个 Milestone 的 Roadmap）；
+> 面向读者的简介见上一级 [`../README.md`](../README.md)。
+>
+> **注**：本日志**历史条目**中出现的「README §X.Y」均指原规格文档——它已更名为 `spec.md`
+> （章节号不变），请按 `spec.md` 对应章节查阅。
 
 ---
 
@@ -30,7 +38,7 @@ obsidian-auto-headings/
 ├── src/                  ← 源代码（TypeScript）
 │   ├── main.ts             插件入口：生命周期、命令、防抖、事务写回、模板接线
 │   ├── parser.ts           Markdown 标题解析（ATX、代码块边界）
-│   ├── numbering.ts        计数器状态机、序号渲染器、前缀拼装、H1 降级、整文重排
+│   ├── numbering.ts        计数器状态机、序号渲染器、前缀拼装、起始层级 topLevel、整文重排
 │   ├── frontmatter.ts      单文件开关（obsidian-auto-headings: ON/OFF）读取
 │   ├── settings.ts         设置数据模型（全局开关、防抖延迟）
 │   ├── settings/
@@ -44,9 +52,11 @@ obsidian-auto-headings/
 │   ├── schema.test.ts
 │   ├── frontmatter.test.ts
 │   └── settings.test.ts
+├── README.md             ← 面向读者的简介（当前功能 + Milestone 概览，入口文档）
 ├── doc/                  ← 文档
-│   ├── README.md           需求/规格/Roadmap（原项目根 README，已移入此处）
-│   └── log.md              本文件：开发日志与交接协议
+│   ├── spec.md             详细需求/规格/Roadmap（原 doc/README.md，已更名）
+│   ├── log.md              本文件：开发日志与交接协议（详细）
+│   └── status.jsonl        状态索引：首行总览 + 每周期一句话概括（接手先读）
 ├── release/              ← 可分发插件文件（交付物，可直接丢进 .obsidian 测试）★每周期必更新
 │   ├── main.js             生产构建（npm run release 生成并同步）
 │   ├── manifest.json
@@ -82,6 +92,110 @@ obsidian-auto-headings/
 
 > 重新生成产物：在项目根运行 `npm install && npm run release`，脚本会自动把
 > `main.js`、`manifest.json`、`styles.css` 同步进 `release/`。
+
+---
+
+## 2026-06-26 — 协作机制：文档结构重整 + status.jsonl 状态索引（不升版本号）
+
+**交接人**：agent（claude/obsidian-inpage-title-compat-rc1emf 分支）
+
+**用户诉求**（仓库级协作机制，**非对本插件功能的更新，故不升版本号**，仍 0.3.9）：
+1. 在根 `CLAUDE.md` 写清「版本号里程碑内持续打磨」原则（`0.M.*`，`*` 持续递增直到该里程碑满意）。
+2. log.md 越来越长——约定接手时**只读最新一块**，按需再翻历史。
+3. 新建 `doc/status.jsonl` 极简状态索引（首行总览 + 每周期一句话概括，倒序），接手**先读它**；
+   并把历史 log 概括进去。
+4. 把 `doc/README.md`（详细规格）**更名为 `doc/spec.md`**，在 Addon 根**新建简短 `README.md`**
+   （当前功能 + Milestone 概览）。以上一并写进 `CLAUDE.md`，并对 `chrome-tab-tree` 同样应用。
+
+**做了什么**：
+- **根 `CLAUDE.md`**：§4 改为「三层记忆」读序（status.jsonl → log.md 最新块 → spec.md）+ 每周期同维护
+  log+status；新增 §4.1「文档结构」表（README / spec / log / status 职责）；新增 §5.1「版本号里程碑内
+  持续打磨」（含「协作机制类改动不升版本」例外）；§7 速览表链接改指 README/spec/log/status。
+- **本 Addon**：`doc/README.md` → `doc/spec.md`（`git mv` 保留历史）；新建根 `README.md`（简介 + 当前
+  功能 + Milestone 概览）；新建 `doc/status.jsonl`（首行 0.3.9 总览 + 14 行历史概括）。log.md 顶部
+  补「接手怎么读」与「历史条目中的『README §X』即 spec.md」消歧；目录结构树更新为 README/spec/status。
+  release/README.md、status.jsonl 内的旧 `README §X` 指针改为 `spec.md`。
+- **chrome-tab-tree**：同样把根 `README.md` → `doc/spec.md`、新建简短根 `README.md`、新建 `doc/status.jsonl`；
+  log.md 指针改 spec.md。
+
+**没做什么**：**未升版本号**（协作机制类，0.3.9 不变）；未改任何源码 / 测试 / 行为 / 产物二进制；
+历史 log 块内的「README §X」prose 不逐条改写（用顶部消歧说明统一覆盖）。
+
+**下一步**：Milestone 4 白名单系统（`spec.md` §3.7），接法见下方 0.3.7 记录的「下一步」。
+
+**验证方式**：`cd obsidian-auto-headings && npm test`（92 passed）、`npm run lint`、`npm run format:check`
+全绿（仅文档/结构改动，行为不变）。人工：`doc/` 下应有 spec.md / log.md / status.jsonl，根有简短 README.md。
+
+---
+
+## 2026-06-26 — 升版 0.3.9：README 与实现对齐（补全「后缀」等过时描述）
+
+**交接人**：agent（claude/obsidian-inpage-title-compat-rc1emf 分支）
+
+**用户诉求**：(1) 重申「做了更改就升版本号，哪怕功能没动」，本周期升到 **0.3.9**（0.3.* 全程
+属 Milestone 3 的持续打磨迭代，`*` 可一直递增，直到 M3 满意无明显 bug）。(2) README 多处仍按
+**加入「后缀」字段之前**的旧规格描述（如「前缀/序号/序号间隔符/标题间隔符/继承前级」缺了「后缀」），
+要求对照 `log.md` 与源代码**交叉审查并更正**，让 README 与实际实现一致。
+
+**做了什么**：
+1. **版本号**：`package.json` / `manifest.json` / `versions.json` / `package-lock.json` / `release/manifest.json`
+   全部 0.3.8 → **0.3.9**；`npm run release` 重新生成 `release/`。
+2. **README 对照源码（`numbering.ts` 的 `LevelFormat`/`Template`/`DEFAULT_TEMPLATE`、`schema.ts` 的
+   `serializeTemplate`）逐处更正**：
+   - §3.6 字段数「五个」→「**六个**」结构化字段（prefix / numeral / **suffix** / numberSeparator /
+     titleSeparator / inherit）；字段说明同步补 `suffix`、`levels.h1`、`topLevel`、`skipFill`。
+   - §3.6「字段如何组合」示例块表头补 **后缀** 列，新增「第1.1章」示例行 + 后缀语义注释。
+   - §3.6 两份 JSON 示例（学术风格 / 默认）补全每级 `suffix`、新增 `h1` 级、补模板级 `skipFill`/
+     `topLevel`，字段顺序对齐 `serializeTemplate` 实际落盘输出。
+   - §3.6 设置 GUI ASCII 布局图补 **后缀** 列、加 H1 置灰行、加「起始编号层级」下拉与「跳级缺失
+     层级 / 占位字符」底栏，与实际面板一致。
+   - §4 存储分层表：`data.json` 内容删去**白名单**（白名单随模板存于 `templates/*.json`，非 data.json）。
+   - §4 架构图：`TemplateStore.ts` 归位到 `templates/`（与 `schema.ts` 同级）、`PathRuleStore` 标注
+     「M5 规划，尚未实现」。
+   - §5 Roadmap M3：schema 字段列表补 `suffix` 与模板级 `topLevel`/`skipFill`；编辑面板「五级×五列」
+     → 「六级 H1–H6 × 六列〔含后缀〕+ 起始层级下拉 + 跳级占位」。
+   - `log.md` 目录结构注释里过时的「H1 降级」→「起始层级 topLevel」（`demoteStrayH1s` 已于 0.3.7 移除）。
+
+**没做什么**：未改任何**源代码 / 测试 / 行为**（纯文档 + 版本号 + 重生产物）；历史日志条目里的
+「H1 降级」等描述属当时记录，**刻意保留**不改写。未触碰白名单（M4）、按路径选模板（M5）。
+
+**下一步**：Milestone 4 白名单系统（README §3.7），接法见下方 0.3.7 记录的「下一步」。
+
+**验证方式**：`cd obsidian-auto-headings && npm test`（92 passed）、`npm run lint`、
+`npm run format:check` 全绿；`npm run release` 后 `git status` 见 `release/` 与各版本文件更新。
+人工对照：README §3.6/§4 的字段、JSON、GUI 图、存储表均含「后缀」且与 `numbering.ts`/`schema.ts` 一致。
+
+---
+
+## 2026-06-26 — 厘清与 Obsidian「页内标题」的兼容关系（仅改文档）
+
+**交接人**：agent（claude/obsidian-inpage-title-compat-rc1emf 分支）
+
+**用户问题**：开启 Obsidian「外观 → 页内标题（将文件名作为可编辑的标题在文件内容中显示）」后，
+这个官方功能与本插件有什么冲突？能否兼容？不能则适配。
+
+**结论（核查后）：无破坏性冲突，且已天然兼容，无需改动行为。**
+
+- **核查**：页内标题是编辑器从 `file.basename` 生成的**渲染层 widget**，不进入 CodeMirror 文本缓冲区。
+  本插件全程只读写 Markdown 源文本——读 `editor.getValue()`（`main.ts:211`）、按行号 `editor.transaction`
+  写回（`main.ts:240`）、`parseHeadings` 只扫源文本里的 `#` 行。两者分属渲染层 / 源文本层，互不污染：
+  插件不会给页内标题编号，也不会因它行错位；阅读模式下插件不运行。
+- **唯一关系是写作习惯搭配**：默认 `topLevel=H2` 是为「正文手写 `# 文档标题`」设计；开了页内标题后
+  标题改由文件名承担，正文 `#` 常直接是章节，想给正文 H1 编号把模板 `topLevel` 设为 H1 即可（0.3.7 已支持）。
+- **刻意不做自动适配**：按外观开关自动改 `topLevel` 违反「插件绝不替用户改 `#` 层级、不替用户做主」
+  的核心原则（README §3.4），故只做**文档化指引**。
+
+**做了什么**：README §2.3 边界表新增「页内标题」一行；§3.4 末尾新增「与 Obsidian『页内标题』的关系」
+小节（含 `topLevel` 搭配表与「不自动改写」的说明）。
+
+**没做什么**：**未改任何源码 / 测试 / 产物**——无代码改动，故未重新生成 `release/`、未改版本号
+（仍 0.3.8，强制规则 1 针对代码改动）。未触碰白名单（M4）、按路径选模板（M5）。
+
+**下一步**：Milestone 4 白名单系统（README §3.7），接法见下方 0.3.7 记录的「下一步」。
+
+**验证方式**：本次为文档改动，`cd obsidian-auto-headings && npm test`（仍 92 passed）、`npm run lint`、
+`npm run format:check` 维持全绿（未触碰源码，行为不变）。Obsidian 实测：开启页内标题后，文件名标题
+不被编号、正文行不错位；把模板 `topLevel` 设为 H1 时正文 H1 章节正常编号为 `1`/`2`/…。
 
 ---
 

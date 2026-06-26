@@ -1,0 +1,15 @@
+{"type":"status","version":"0.3.9","milestone":"M3 模板系统（持续打磨中，0.3.* 迭代）","next":"M4 白名单系统（spec.md §3.7）；接手前先读 log.md 最新一块的「下一步」","updated":"2026-06-26","note":"本文件是状态索引：首行为当前总览，其下每行一句话概括一个工作周期（倒序，最新紧贴首行下方）。详细交接见 log.md 对应块。"}
+{"type":"log","date":"2026-06-26","version":"0.3.9","summary":"协作机制：doc/README.md 更名为 spec.md + 新建简短根 README.md（当前功能/Milestone）；新建 doc/status.jsonl 状态索引并概括历史；CLAUDE.md 增补三层记忆读序、文档结构、版本号持续打磨原则。同样应用于 chrome-tab-tree。协作机制类改动，不升版本号。"}
+{"type":"log","date":"2026-06-26","version":"0.3.9","summary":"对照源码交叉审查 README，补全加入「后缀」字段后遗留的过时描述（字段数五→六、两份 JSON 示例、GUI 布局图、存储表白名单归属、架构图模块位置）。"}
+{"type":"log","date":"2026-06-26","version":"0.3.8","summary":"文档：厘清与 Obsidian「页内标题」官方功能的兼容关系——页内标题是渲染层 widget、不入 md 源文本，插件天然兼容；想给正文 H1 编号则把模板 topLevel 设为 H1。"}
+{"type":"log","date":"2026-06-26","version":"0.3.8","summary":"修复两实测 bug：改序号样式后旧前缀叠加（剥离 token 拆「父级段/末段」两类）、在设置面板改模板后当前文件不更新（新增 renumberActiveFile 即时重排）。"}
+{"type":"log","date":"2026-06-25","version":"0.3.7","summary":"起始编号层级 topLevel（每模板 H1–H6，默认 H2）取代旧的 H1 降级——插件不再改写 # 层级；跳级占位字符限数字；模板列序调整。"}
+{"type":"log","date":"2026-06-25","version":"0.3.6","summary":"新增每级「后缀」字段（与前缀配合实现「第1章」式编号）；跳级占位字符限数字以保证可干净剥离。"}
+{"type":"log","date":"2026-06-25","version":"0.3.5","summary":"跳级缺失层级占位策略改为「每个模板可配置」（补位/不补位 + 占位字符），刻意不做成全局设置。"}
+{"type":"log","date":"2026-06-25","version":"0.3.4","summary":"修复跳级标题少一段序号（H3→H5 得四段 1.1.0.1）；设置面板右上角显示版本号；测试目录重组为 dev_tests/ 与 user_tests/。"}
+{"type":"log","date":"2026-06-25","version":"0.3.2","summary":"修复两编号 bug：跨级拼接时父级各自套用其级别样式（得「一.a.①」）；改模板样式后前缀重复叠加（剥离改用样式并集 token + 循环剥离清理脏前缀）。"}
+{"type":"log","date":"2026-06-25","version":"0.3.1","summary":"修复 bug：非 arabic 序号样式下 H3–H6 每周期被反复重写、前缀累加（stripPrefix 继承分支正则对齐 buildPrefix 的「阿拉伯父级 + 本级样式」结构）。"}
+{"type":"log","date":"2026-06-25","version":"0.3.0","summary":"文档：白名单（M4）设计加固——保留全部/部分/子树三种匹配，补齐匹配归一化、并集解析、子树范围、含子标题告警等健壮性规格（仅改 README）。"}
+{"type":"log","date":"2026-06-25","version":"0.3.0","summary":"仓库改用统一 Agent 交接约定（新增根 CLAUDE.md 与 SessionStart 钩子，落地 doc/log.md 倒序交接）；未触碰插件代码。"}
+{"type":"log","date":"2026-06-24","version":"0.3.0","summary":"交付物规范化：产物文件夹定为 release/，新增 npm run release 脚本与「每周期必重生 release/ 并入库」强制规则。"}
+{"type":"log","date":"2026-06-24","version":"0.3.0","summary":"Milestone 3 模板系统完成：序号渲染器（arabic/cjk/circled/alpha）、模板 schema 与 TemplateStore（templates/*.json）、设置 GUI 模板增删 + 行内编辑面板 + 实时预览。"}
