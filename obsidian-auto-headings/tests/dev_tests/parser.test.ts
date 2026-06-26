@@ -9,6 +9,15 @@ describe("parseHeadings", () => {
 		expect(headings.map((h) => h.text)).toEqual(["文档标题", "第一章", "细节", "最深级"]);
 	});
 
+	it("text 去除行尾空白，rawText 保留行尾空白", () => {
+		// `### 1.1 ` 是插件给「空行直接转标题」写入编号后的形态（末尾即标题间隔符空格）：
+		// text 去尾后为 `1.1`，rawText 保留为 `1.1 `。后者是「不重复叠编号」修复的关键信号
+		// （用带空格的 rawText 剥离才能命中标题间隔符、把前缀干净剥成空，见 numbering.ts）。
+		const headings = parseHeadings("## 标题  \n### 1.1 ");
+		expect(headings.map((h) => h.text)).toEqual(["标题", "1.1"]);
+		expect(headings.map((h) => h.rawText)).toEqual(["标题  ", "1.1 "]);
+	});
+
 	it("记录每个标题所在行下标", () => {
 		const content = ["前言", "", "## 第一章", "正文", "## 第二章"].join("\n");
 		const headings = parseHeadings(content);

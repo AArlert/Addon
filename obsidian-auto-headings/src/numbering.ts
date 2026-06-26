@@ -597,6 +597,19 @@ export function stripPrefix(text: string, level: number, template: Template): st
 	}
 }
 
+/**
+ * 剥离一个已解析标题的编号前缀，并去除结果的行尾空白。
+ *
+ * 关键点：对 {@link Heading.rawText}（**保留行尾空白**）而非已 trim 的 {@link Heading.text}
+ * 调用 {@link stripPrefix}。这样在用户于**空行**上直接转标题、行变为 `### 1.1 `（末尾即标题
+ * 间隔符的空格）的情形下，`1.1 ` 仍带着间隔符空格、能被前缀正则干净命中并剥成空；而 `# 三`
+ * 这类「本身是序号字样、末尾无空格」的真实标题则因缺少间隔符不被误剥。剥离后再 trim 掉
+ * 可能残留的行尾空白，与解析器对 {@link Heading.text} 的处理保持一致。
+ */
+function stripHeadingPrefix(heading: Heading, level: number, template: Template): string {
+	return stripPrefix(heading.rawText, level, template).replace(/\s+$/, "");
+}
+
 /** 重新编号后的单个标题。 */
 export interface NumberedHeading {
 	/** 标题级别 1–6。 */
@@ -647,7 +660,7 @@ export function numberHeadings(
 
 		// 白名单命中：完全透明（不计数、不归零），但剥离其已有编号。
 		if (isWhitelisted(heading)) {
-			const text = stripPrefix(heading.text, level, template);
+			const text = stripHeadingPrefix(heading, level, template);
 			return {
 				level,
 				text,
@@ -671,7 +684,7 @@ export function numberHeadings(
 			};
 		}
 
-		const text = stripPrefix(heading.text, level, template);
+		const text = stripHeadingPrefix(heading, level, template);
 		const prefix = buildPrefix(template, level, counter);
 		return {
 			level,
