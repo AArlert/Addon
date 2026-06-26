@@ -550,6 +550,32 @@ describe("renumberContent", () => {
 	});
 });
 
+describe("空标题（在空行上直接转标题）不重复叠加编号（回归 bug）", () => {
+	// 复现：用户在**空行**用快捷键直接转成 H3，Obsidian 写入 `### `（带尾随空格）。
+	// 插件首轮编号得 `### 1.1 `（末尾即标题间隔符空格）；该尾随空格被解析器 trim 后，
+	// 若按 trim 的 text（`1.1`）剥离会剥不掉→被当正文→左侧再叠新前缀，得 `### 1.1 1.1`。
+	// 修复：剥离改用保留尾随空格的 rawText（`1.1 `），既能干净剥成空、又不误伤真实序号标题。
+	it("空 H3 反复编号保持幂等（不出现 1.1 1.1）", () => {
+		const c1 = renumberContent("# 标题\n## 节\n### \n");
+		expect(c1).toBe("# 标题\n## 1 节\n### 1.1 \n");
+		// 多轮幂等：第二、三轮都不再变化、不叠加。
+		const c2 = renumberContent(c1);
+		expect(c2).toBe(c1);
+		expect(renumberContent(c2)).toBe(c1);
+	});
+
+	it("删掉重复后的残留再编号也不会复生（模拟用户删除第二个 1.1）", () => {
+		// 用户看到 `### 1.1 1.1` 后删掉后面那个 `1.1`，剩 `### 1.1 `；再触发应稳定为 `### 1.1 `。
+		expect(renumberContent("## 1 节\n### 1.1 ")).toBe("## 1 节\n### 1.1 ");
+	});
+
+	it("「# 三」这类本身是序号字样的真实标题不被误剥（topLevel=H1）", () => {
+		// rawText 末尾无空格 → 缺标题间隔符 → 不匹配前缀正则 → 标题文本「三」保留。
+		const tpl: Template = { ...DEFAULT_TEMPLATE, topLevel: 1 };
+		expect(renumberContent("# 一\n# 二\n# 三", tpl)).toBe("# 1 一\n# 2 二\n# 3 三");
+	});
+});
+
 describe("跳级占位策略 skipFill（每个模板各自决定）", () => {
 	/** 在默认模板基础上替换 skipFill 策略。 */
 	function withSkipFill(skipFill: SkipFill): Template {

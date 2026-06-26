@@ -16,6 +16,16 @@ export interface Heading {
 	level: number;
 	/** `#` 与其后空白之后的标题文本（已去除行尾空白；编号前缀**未**剥离）。 */
 	text: string;
+	/**
+	 * `#` 与其后空白之后的标题文本，**保留行尾空白**（编号前缀**未**剥离）。
+	 *
+	 * 与 {@link text} 唯一的区别是不 trim 行尾空白。这对剥离编号前缀至关重要：当用户在**空行**
+	 * 上用快捷键直接转成标题时，行形如 `### `，插件写入前缀后变为 `### 1.1 `（末尾即标题间隔符
+	 * 那个空格）。若按 trim 后的 `text`（`1.1`）去剥离，会因缺了间隔符而剥不掉→被当正文→左侧再
+	 * 叠一层新前缀，出现「1.1 1.1」叠加。改用本字段（`1.1 `，含尾随空格）剥离即可干净命中，
+	 * 又不会误伤「`# 三`」这类**本身就是序号字样、末尾无空格**的真实标题。
+	 */
+	rawText: string;
 	/** 标题所在行的下标（0 起）。 */
 	lineIndex: number;
 	/** 原始整行内容。 */
@@ -68,6 +78,7 @@ export function parseHeadings(content: string): Heading[] {
 			headings.push({
 				level: m[1].length,
 				text: m[2].replace(/\s+$/, ""),
+				rawText: m[2],
 				lineIndex: i,
 				raw: line,
 			});
