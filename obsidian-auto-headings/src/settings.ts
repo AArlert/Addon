@@ -3,7 +3,7 @@
  *
  * Milestone 2 在面板全局开关之外引入防抖延迟字段（供 onChange 监听器使用）。
  * 模板、白名单、路径规则的设置项，以及防抖延迟的滑块 UI 将在后续里程碑加入
- * （见 README Roadmap）。
+ * （见 spec.md Roadmap）。
  */
 export interface AutoHeadingsSettings {
 	/** 面板全局开关：是否对任何文件启用自动编号。持久化于 data.json。 */
@@ -12,7 +12,7 @@ export interface AutoHeadingsSettings {
 	debounceDelay: number;
 }
 
-/** 防抖延迟的边界与默认值（见 README 3.9）。 */
+/** 防抖延迟的边界与默认值（见 spec.md 3.9）。 */
 export const DEBOUNCE_MIN = 50;
 export const DEBOUNCE_MAX = 2000;
 export const DEBOUNCE_DEFAULT = 300;

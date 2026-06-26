@@ -1,20 +1,19 @@
 /**
- * 标题编号引擎（Milestone 1）。
+ * 标题编号引擎（核心：Milestone 1 起；序号渲染器与模板字段：Milestone 3）。
  *
  * 包含三部分：
- * 1. 模板数据模型与内置默认模板（硬编码，用于验证输出正确性）。
+ * 1. 模板数据模型与内置默认模板（`DEFAULT_TEMPLATE`，亦作单元测试基准）。
  * 2. 计数器状态机 {@link HeadingCounter}：随层级累加、随层级变化将更深层级归零；
  *    白名单标题既不累加也不归零（不占槽位、不跳号）。
- * 3. 前缀拼装、已有前缀剥离，以及把整篇文档重新编号的 {@link renumberContent}。
+ * 3. 序号渲染器、前缀拼装、已有前缀剥离，以及把整篇文档重新编号的 {@link renumberContent}。
  *
- * 本里程碑仅实现 `arabic` 序号样式的渲染；`cjk` / `circled` / `lower-alpha` /
- * `upper-alpha` 的渲染留待 Milestone 3。默认模板全部使用 `arabic`，因此本里程碑
- * 的输出可被完整验证。
+ * 序号样式 `arabic` / `cjk` / `circled` / `lower-alpha` / `upper-alpha` 均已实现
+ * （见 {@link renderNumeral}）；内部计数始终为纯阿拉伯整数，样式仅在写入时套用。
  */
 
 import { Heading, parseHeadings } from "./parser";
 
-/** 序号样式枚举（见 README 3.6）。 */
+/** 序号样式枚举（见 spec.md 3.6）。 */
 export type NumeralStyle = "arabic" | "cjk" | "circled" | "lower-alpha" | "upper-alpha";
 
 /** 起始编号层级的默认值：H2（即默认 H1 不编号、作为标题/分节）。 */
@@ -69,7 +68,7 @@ export function normalizeSkipFill(skipFill: SkipFill | undefined): SkipFill {
 	return { mode: "fill", placeholder: sanitizePlaceholder(skipFill.placeholder) };
 }
 
-/** 单个标题级别（H2–H6）的显示格式。 */
+/** 单个标题级别（H1–H6）的显示格式（H1 是否编号由模板 `topLevel` 决定）。 */
 export interface LevelFormat {
 	/** 序号前的自定义文本，可为空（如「第」）。 */
 	prefix: string;
@@ -120,7 +119,7 @@ export interface Template {
 	topLevel: number;
 }
 
-/** 默认模板：纯阿拉伯多级点分（`1` / `1.1` / `1.1.1` …），见 README 默认 `default.json`。 */
+/** 默认模板：纯阿拉伯多级点分（`1` / `1.1` / `1.1.1` …），见 spec.md 默认 `default.json`。 */
 export const DEFAULT_TEMPLATE: Template = {
 	name: "默认",
 	levels: {
@@ -363,7 +362,7 @@ function toAlpha(value: number, base: number): string {
 
 /**
  * 将一个纯阿拉伯整数渲染为指定序号样式的字符串。
- * 支持 `arabic` / `cjk` / `circled` / `lower-alpha` / `upper-alpha`（见 README 3.6）。
+ * 支持 `arabic` / `cjk` / `circled` / `lower-alpha` / `upper-alpha`（见 spec.md 3.6）。
  */
 export function renderNumeral(style: NumeralStyle, value: number): string {
 	switch (style) {
@@ -562,7 +561,7 @@ function lastSegmentToken(template: Template, skipFill: SkipFill): string {
  * 为应对历史上已叠加多层的脏数据，这里**循环剥离**直至不再变化（每轮至少吃掉一段，不会死循环）。
  *
  * 已知歧义：当标题本身恰以「序号样式字符 + 标题间隔符」开头（如默认模板下的「2024 年度总结」，
- * 或模板用到字母样式时以英文单词 + 空格开头的标题）时，会被误判为前缀而剥离——这与 README
+ * 或模板用到字母样式时以英文单词 + 空格开头的标题）时，会被误判为前缀而剥离——这与 spec.md
  * 「对前缀的手动编辑属预期行为、会被覆盖」的设计一致。
  */
 export function stripPrefix(text: string, level: number, template: Template): string {

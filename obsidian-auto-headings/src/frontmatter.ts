@@ -1,5 +1,5 @@
 /**
- * 单文件开关（frontmatter）读取（见 README 3.2）。
+ * 单文件开关（frontmatter）读取（见 spec.md 3.2）。
  *
  * 插件**仅读取**一个 frontmatter 键 `obsidian-auto-headings`，用于局部控制单个文件：
  * - 合法值仅 `ON` 与 `OFF`（**大小写敏感**，仅接受全大写）。

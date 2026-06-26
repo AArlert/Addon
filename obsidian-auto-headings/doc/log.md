@@ -95,6 +95,38 @@ obsidian-auto-headings/
 
 ---
 
+## 2026-06-26 — 升版 0.3.11：M3 打磨——对齐 0.3.10 文档（修规格自相矛盾 + 源码注释 drift）
+
+**交接人**：agent（claude/obsidian-auto-headings-m3-pp12hr 分支）
+
+**用户诉求**：按 0.3.10 更新后的文档要求更新设计和产出；**开发停留在 M3 打磨，M4+ 里程碑不碰**（不实现白名单 / 路径系统 / 清除编号等功能代码）。本周期只做「让 M3 现状与 0.3.10 定稿文档自洽」的打磨，不写任何新功能。
+
+**做了什么**：
+
+1. **修 `spec.md` §2.3 边界表自相矛盾**（0.3.10 重写 §3.8 时遗留）：
+   - 删除「无任何路径规则匹配当前文件 → 使用全局默认模板」一行——它与同表「当前文件无任何路径规则命中（含 `/` 根规则被删）→ 无可用模板、静默跳过 / Notice」及 §3.8 解析逻辑**直接冲突**；保留后者为权威表述。
+   - 「当前文件匹配多条路径规则」行的具体度排序由旧的「文件路径 > 文件夹路径 > **全局默认**」改为与 §3.8 一致的「精确文件路径 > 最长文件夹前缀 > **`/` 根规则**」，并补 §3.8 链接。
+   - **仅修文档自洽，未触碰 M5 任何实现**。
+2. **修源码注释 drift（不改任何运行行为）**：
+   - `numbering.ts` 文件头删除「`cjk` / `circled` / `lower-alpha` / `upper-alpha` 渲染留待 Milestone 3」这一**已过时且误导**的陈述（这些渲染器 M3 早已全部实现）；改为如实描述。
+   - 全仓源码注释里残留的「README §X」引用统一改为「spec.md §X」（规格文档已于 0.3.9 更名）：`numbering.ts`×4、`settings.ts`×2、`frontmatter.ts`×1。
+   - `SettingsTab.ts` 类注释由过时的「H2–H6 五行 × 五列」更正为实际的「起始层级下拉 + H1–H6 六行 × 六列（含后缀）+ 跳级占位」。
+   - `numbering.ts` 的 `LevelFormat` 注释「（H2–H6）」更正为「（H1–H6，H1 是否编号由 `topLevel` 决定）」。
+3. 版本号 0.3.10 → **0.3.11**（`manifest.json` / `package.json` / `package-lock.json`×2 / `versions.json` / `release/manifest.json`）；`README.md` 顶部「截至 v0.3.11」。
+4. **重生 `release/`**（`npm run release`）并入库。
+
+**没做什么（边界）**：
+
+- **完全未碰 M4/M5/M6 的功能实现**——白名单匹配、路径规则、开关两层化、frontmatter `ON` 强制语义、删模板确认对话框、清除编号等均仍是规格 / 占位，按用户要求不动。
+- 未改任何运行时行为：源码改动**全部是注释**，`main.js` 逻辑与 0.3.10 等价；测试用例无增减（仍 92 个全绿）。
+- 未改 frontmatter 的 M3 行为（`ON`/缺省跟随全局开关；`OFF` 跳过）——其 M5 「`ON` 文件级强制」语义留待 M5。
+
+**下一步**（给接手 agent）：M3 打磨若已无明显瑕疵，可进入 **M4 白名单**（spec.md §3.7，数据模型 `WhitelistEntry` 已在 M3 落地）或 **M5 开关重构 + 路径系统**（§3.1/§3.2/§3.8）；优先级由用户定。接手前先读 status.jsonl 与本块。
+
+**验证方式**：项目根 `npm test`（92 passed）、`npm run lint`（无报错）、`npm run format:check`（全通过）、`npm run release`（重生 `release/main.js` / `manifest.json` / `styles.css`，manifest 版本 0.3.11）。源码改动均为注释，可 `git diff` 确认无逻辑变化。
+
+---
+
 ## 2026-06-26 — 升版 0.3.10：开关重构 + 路径 `/` 根规则 + 清除编号（仅改规格文档）
 
 **交接人**：agent（claude/obsidian-auto-headings-logic-2rih7m 分支）
