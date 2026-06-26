@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-auto-headings",
-	"version": "0.3.11",
+	"version": "0.3.12",
 	"description": "自动为 Markdown 文件中的标题编号，支持完全自定义的多模板与按路径配置。首版仅提供中文界面。",
 	"main": "main.js",
 	"type": "module",
@@ -26,6 +26,7 @@
 		"@types/node": "22.10.2",
 		"@typescript-eslint/eslint-plugin": "8.18.0",
 		"@typescript-eslint/parser": "8.18.0",
+		"adm-zip": "^0.5.17",
 		"builtin-modules": "3.3.0",
 		"esbuild": "0.28.1",
 		"eslint": "8.57.1",

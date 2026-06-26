@@ -95,6 +95,51 @@ obsidian-auto-headings/
 
 ---
 
+## 2026-06-26 — 升版 0.3.12：release 脚本额外打包 zip（M3 打磨 / 交付物增强）
+
+**交接人**：agent（claude/obsidian-auto-headings-m3-y4vnoo 分支）
+
+**用户诉求**（直接做）：`npm run release` 除了在 `release/` 平铺原来的三个独立文件，**还要生成一个
+zip**；zip 内是一个 `obsidian-auto-headings/` 文件夹，里面放那三个文件。这样既能直接下载、解压即得
+标准插件目录，也方便日后发布 GitHub Release。
+
+**做了什么**：
+- 新增 devDependency **`adm-zip`**（纯 JS、跨平台，避免依赖系统 `zip` CLI）。
+- 重写 `scripts/sync-release.mjs`：平铺三文件后，再把 `main.js`/`manifest.json`/`styles.css` 以
+  `obsidian-auto-headings/<file>` 路径塞进 zip，写出 `release/obsidian-auto-headings.zip`。
+  zip 内文件夹名 = `manifest.json` 的 `id`。**固定每个条目时间戳**（2020-01-01），使内容不变时
+  zip 字节稳定、不产生无意义的 git 改动（已验证连跑两次 md5 一致）。
+- `release/README.md`：新增「方式一（zip）/ 方式二（独立文件）」两种安装说明。
+- 版本 0.3.11 → **0.3.12**（manifest/package/package-lock/versions/release/manifest + README 版本号），
+  `npm run release` 重建 `release/`（含新 zip）。
+
+**没做什么**（明确边界）：未改任何编号逻辑 / 测试（仍 96 passed）；**未碰 M4+ 功能**；zip 文件名采用
+**稳定名**（不含版本号）以免历史里堆积多份；zip 内**不含** `release/README.md`（按用户要求只放三文件）。
+关于「继承前级」对混合序号样式的设计评估（H2=一/H3=1.1 诉求）见下方「评估」一节，本周期**仅评估、未改代码**。
+
+**评估：当前「继承前级」能否表达「H2=一、H3=1.1、H4=a)」？（结论：不能，缺一个自由度，非 bug）**
+- 实测当前引擎对「每个祖先段套用其**自身级别**的样式」（Model A，0.3.2 的有意设计）：
+  `H2=cjk,H3=arabic` → `一.1`（用户想要 `1.1`）；`H2=arabic,H3=alpha,H4=circled` → `1.a.①`。
+- 根因：每级单一的 `numeral` 字段同时承担两个**会冲突**的职责——「本级**独立**显示成什么」与
+  「本级**作为祖先**出现在更深前缀里显示成什么」。中文书惯例（章 `一`、节 `1.1`）要求祖先转阿拉伯；
+  而提纲惯例（`1.a.①` / `I.A.1`）要求祖先保留各自样式。两者**方向相反**，单一固定模型无法兼得。
+- 结论：不是 bug，是**缺一个自由度**。建议加**每模板**开关「祖先序号渲染」= {各自样式（默认=现状）|
+  统一阿拉伯}。默认值＝现状，向后兼容；选「统一阿拉伯」即得 `一` / `1.1` / `1.1.a)`。`stripPrefix`
+  的剥离 token 本就纳入全样式并集，加该开关无需改动剥离、已天然兼容。
+- 待用户确认的歧义（见对话）：①「统一阿拉伯」下同一章在标题处显示 `一`、在子节号里显示 `1`，这种
+  「同号不同形」是否可接受（中文书确实如此）；②`H4=a)` 指**不继承**的独立 `a)`，还是继承的 `1.1.a)`；
+  ③祖先段是否需要带祖先自己的前缀/后缀（如 `第一章`→子节里要不要 `第1章.…`，通常不要）。
+
+**下一步**：等用户就上面三点拍板后，再实现「祖先序号渲染」开关（M3 打磨范畴）：`Template` 加字段
+（如 `ancestorNumeral: "self" | "arabic"`，默认 `self`）→ `buildPrefix` 渲染祖先段时按它选样式 →
+schema 解析/兜底 → GUI 加下拉 → 补单测（两模型在 cjk/alpha/circled 组合下的输出与往返剥离）。
+
+**验证方式**：`cd obsidian-auto-headings && npm test`（96 passed）、`npm run lint`、`npm run format:check`
+全绿；`npm run release` 后 `unzip -l release/obsidian-auto-headings.zip` 应见 `obsidian-auto-headings/`
+下三文件；连跑两次 `npm run release`，`md5sum release/obsidian-auto-headings.zip` 两次一致。
+
+---
+
 ## 2026-06-26 — 升版 0.3.11：修复「空行直接转标题致编号重复叠加」bug（M3 打磨）
 
 **交接人**：agent（claude/obsidian-auto-headings-m3-y4vnoo 分支）
