@@ -114,6 +114,25 @@ export default class AutoHeadingsPlugin extends Plugin {
 		return ok;
 	}
 
+	/**
+	 * 在设置面板修改模板后，立即对**当前活动 Markdown 文件**重新编号，使格式调整即时可见。
+	 *
+	 * 修复用户报告的「调整格式后文件压根没更新」：此前模板改动只写盘（`templateStore.save`），
+	 * 不会触发重新编号，须等用户在编辑器里再敲一下才生效。这里在每次模板改动后主动跑一遍
+	 * 与实时触发同一套 {@link applyRenumber} 逻辑（仍受全局开关与 frontmatter 约束；无活动编辑器
+	 * 或内容无变化时静默跳过）。
+	 */
+	renumberActiveFile(): void {
+		if (!this.settings.enabled) {
+			return;
+		}
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view) {
+			return;
+		}
+		this.applyRenumber(view.editor);
+	}
+
 	async loadSettings(): Promise<void> {
 		const data = await this.loadData();
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
