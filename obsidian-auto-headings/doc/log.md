@@ -46,15 +46,18 @@ obsidian-auto-headings/
 │   └── templates/
 │       ├── schema.ts       模板 schema 校验/序列化/文件名安全化
 │       └── TemplateStore.ts 模板文件 CRUD（vault adapter 读写 templates/*.json）
-├── tests/                ← 单元测试（Vitest，无需 Obsidian 运行时）
-│   ├── parser.test.ts
-│   ├── numbering.test.ts
-│   ├── schema.test.ts
-│   ├── frontmatter.test.ts
-│   └── settings.test.ts
+├── tests/                ← 测试
+│   ├── dev_tests/          自动化单元测试（Vitest，无需 Obsidian 运行时，npm test 跑它）
+│   │   ├── parser.test.ts
+│   │   ├── numbering.test.ts
+│   │   ├── schema.test.ts
+│   │   ├── frontmatter.test.ts
+│   │   └── settings.test.ts
+│   └── user_tests/         可复制粘贴进 Obsidian 实测的 .md 样例（每个对应 testplan 某场景）
 ├── README.md             ← 面向读者的简介（当前功能 + Milestone 概览，入口文档）
 ├── doc/                  ← 文档
 │   ├── spec.md             详细需求/规格/Roadmap（原 doc/README.md，已更名）
+│   ├── testplan.md         测试场景与真值表（操作序列 + 预期 + 状态 + 已知 bug 汇总）
 │   ├── log.md              本文件：开发日志与交接协议（详细）
 │   └── status.jsonl        状态索引：首行总览 + 每周期一句话概括（接手先读）
 ├── release/              ← 可分发插件文件（交付物，可直接丢进 .obsidian 测试）★每周期必更新
@@ -92,6 +95,52 @@ obsidian-auto-headings/
 
 > 重新生成产物：在项目根运行 `npm install && npm run release`，脚本会自动把
 > `main.js`、`manifest.json`、`styles.css` 同步进 `release/`。
+
+---
+
+## 2026-06-28 — 升版 0.3.15：新建 doc/testplan.md 测试计划 + 工作流程接线（M3 打磨）
+
+**交接人：** 分支 `claude/obsidian-auto-headings-testplan-nwl2pt`
+
+**做了什么：**
+
+- **新建 [`doc/testplan.md`](./testplan.md)**——这个 Addon 的**测试场景清单与真值表**，按「操作（尤其
+  操作序列）→ 预期结果 → 当前状态（✅/❌/⚠️/🔲）」逐条枚举，同时面向**开发期 Agent**（dev_tests）与
+  **手动实测用户**（user_tests）。重点是 §1「状态转移测试」：把「已编号文件 → 改某模板字段 → 再触发」
+  当一等公民来测，因为绝大多数诡异 bug 都出在这里。
+- **实测复现并登记了一类 bug（§3 已知 bug 汇总）**：在已编号内容上**改格式字段后再触发会前缀叠加**——
+  - B1 改标题间隔符（空格→`、`）→ `一、一 标题`（=用户报告的原始现象）
+  - B5 标题间隔符 `. `→空格 → `1 1. 标题`
+  - B4 序号间隔符 `.`→`-` → `1-1 1.1 子`
+  - B2 加前缀「第」→ `第1 1 标题`；B3 加后缀「章」→ `1章 标题` 实为 `1章 1 标题`
+  - C3 调高 topLevel 后，移出编号范围的浅标题残留旧前缀（`# 1 篇` 的 `1 ` 不被清）
+  根因均在 `src/numbering.ts`：`stripPrefix` 把 `prefix/suffix/numberSeparator/titleSeparator` 当**当前值
+  字面量**写进剥离正则，这些字段一改、旧前缀就匹配不上。**序号样式（numeral）此前已用"全样式并集
+  token"修过（B6/B7 ✅），但这几个字面量字段没做同等放宽。**
+- **工作流程接线**：根 `CLAUDE.md` §4.1 把 `testplan.md` 纳入 Addon 文档结构表、§5 开发流程新增「动手前
+  先在 testplan 加场景 / 完工后回填状态」两步；`README.md`、`doc/spec.md` §2.3、`tests/user_tests/README.md`
+  各加指向 testplan 的交叉引用。
+- 升版 0.3.14 → **0.3.15**（manifest/package/package-lock/versions），重生 `release/`。
+
+**没做什么（明确边界）：**
+
+- **没有修任何 bug、没改引擎代码**。本周期只立测试计划、登记 bug、接线文档。§3 的 ❌ 全部留给后续周期。
+- testplan 里标 ❌/🔲 的场景**尚未**落成 `tests/dev_tests/` 的失败回归测试——下一步要做。
+
+**下一步（给接手 Agent 的明确起点）：**
+
+1. 优先修 **B 类**（用户实际报告）：让 `stripPrefix` 对 `prefix/suffix/numberSeparator/titleSeparator`
+   的旧值也能剥离（思路见 testplan §3 末「统一修复思路」），**难点是守住不误伤真实标题**——务必同步
+   补 testplan B/C/E 类的 dev_tests + user_tests 双向验证「既剥得净、又不误伤」。
+2. 每修好一条，把 testplan 对应行 ❌→✅、更新 §3 汇总表、补回归测试、bump 版本。
+3. 之后再按 testplan 把 🔲（白名单 M4 / 清除 M6 / 开关 M5 / 防抖 J 类等）逐步补测试覆盖。
+
+**验证方式：**
+
+- `npm test`（106 passed）/ `npm run lint` / `npm run format:check` 全绿；`npm run release` 已重生
+  `release/`（manifest 显示 0.3.15）。
+- bug 复现：见 testplan §2 B/C 类「当前实测」列；可用 `renumberContent` 串两次（旧配置编号 → 改字段 →
+  再编号）即得叠加输出。
 
 ---
 

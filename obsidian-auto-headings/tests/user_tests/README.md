@@ -1,5 +1,8 @@
 # 用户手动测试用例（user_tests）
 
+> 场景的**总清单与预期真值表**（含已知 bug 状态）在 [`../../doc/testplan.md`](../../doc/testplan.md)；
+> 本目录是它"user"场景的可复制实测载体，每个 `.md` 都应能追溯回 testplan 的某条场景 ID。
+
 本文件夹收录**面向真人、在 Obsidian 里实测**的样例文档，与 `tests/dev_tests/`（自动化单元
 测试）互补：
 
