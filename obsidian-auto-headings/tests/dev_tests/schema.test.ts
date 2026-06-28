@@ -113,6 +113,15 @@ describe("normalizeTemplate", () => {
 		expect(t.levels.h2.suffix).toBe("章");
 		expect(t.levels.h3.suffix).toBe(""); // 缺省为空
 	});
+
+	it("规范化 ancestorNumeral：保留 self/arabic，非法/缺失（旧模板）回退 self", () => {
+		expect(normalizeTemplate({ ancestorNumeral: "arabic" }, "fb").ancestorNumeral).toBe(
+			"arabic",
+		);
+		expect(normalizeTemplate({ ancestorNumeral: "self" }, "fb").ancestorNumeral).toBe("self");
+		expect(normalizeTemplate({ ancestorNumeral: "wat" }, "fb").ancestorNumeral).toBe("self");
+		expect(normalizeTemplate({}, "fb").ancestorNumeral).toBe("self"); // 缺失（旧模板）回退
+	});
 });
 
 describe("serializeTemplate", () => {

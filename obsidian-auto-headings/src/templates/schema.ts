@@ -14,6 +14,7 @@ import {
 	DEFAULT_SKIP_FILL,
 	DEFAULT_TEMPLATE,
 	type LevelFormat,
+	normalizeAncestorNumeral,
 	normalizeTopLevel,
 	type NumeralStyle,
 	sanitizePlaceholder,
@@ -147,6 +148,7 @@ export function normalizeTemplate(raw: unknown, fallbackName: string): Template 
 		whitelist: normalizeWhitelist(obj.whitelist),
 		skipFill: normalizeSkipFill(obj.skipFill),
 		topLevel: normalizeTopLevel(obj.topLevel),
+		ancestorNumeral: normalizeAncestorNumeral(obj.ancestorNumeral),
 	};
 }
 

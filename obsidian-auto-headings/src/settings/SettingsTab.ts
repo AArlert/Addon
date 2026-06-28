@@ -1,6 +1,13 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type AutoHeadingsPlugin from "../main";
-import { normalizeTopLevel, type NumeralStyle, previewLevel, type Template } from "../numbering";
+import {
+	type AncestorNumeral,
+	normalizeAncestorNumeral,
+	normalizeTopLevel,
+	type NumeralStyle,
+	previewLevel,
+	type Template,
+} from "../numbering";
 import { DEFAULT_TEMPLATE_NAME, LEVEL_KEYS, type LevelKey } from "../templates/schema";
 
 /** 序号样式下拉的选项（值 → 中文标签，含示例字形）。 */
@@ -174,6 +181,26 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 					await this.plugin.templateStore.save(template);
 					this.plugin.renumberActiveFile();
 					this.display(); // 重新渲染以更新各级行的「生效/置灰」与预览。
+				});
+			});
+
+		// —— 祖先序号渲染（下拉，每个模板各自决定）——
+		// 继承前级时，前缀里「祖先段」（比当前级浅的各段）以何种样式呈现：
+		// 各自样式（默认，得 1.a.①）/ 统一阿拉伯（得 一 / 1.1，适合中文书）。
+		const ancestorNumeral = normalizeAncestorNumeral(template.ancestorNumeral);
+		new Setting(panel)
+			.setName("祖先序号渲染")
+			.setDesc(
+				"继承前级时，前缀里更浅层级（祖先）的序号用什么样式：「各自样式」每个祖先套用其自身样式（如 H3=字母、H4=带圈得 1.a.①）；「统一阿拉伯」祖先一律阿拉伯、仅当前级套自身样式（如 H2=中文得标题「一」、H3 子节得「1.1」，适合中文书）。",
+			)
+			.addDropdown((dd) => {
+				dd.addOption("self", "各自样式（1.a.①）");
+				dd.addOption("arabic", "统一阿拉伯（一 / 1.1）");
+				dd.setValue(ancestorNumeral).onChange(async (value) => {
+					template.ancestorNumeral = value as AncestorNumeral;
+					await this.plugin.templateStore.save(template);
+					this.plugin.renumberActiveFile();
+					this.display(); // 重新渲染以更新各级预览。
 				});
 			});
 

@@ -95,6 +95,45 @@ obsidian-auto-headings/
 
 ---
 
+## 2026-06-26 — 升版 0.3.13：新增「祖先序号渲染」开关 ancestorNumeral（M3 打磨）
+
+**交接人**：agent（claude/obsidian-auto-headings-m3-y4vnoo 分支）
+
+**背景**：上一周期（0.3.12）评估指出——当前「继承前级」对混合序号样式只支持「祖先各自套用自身
+样式」(Model A)，故 `H2=中文/H3=阿拉伯` 得 `一.1`，无法表达中文书惯例（章 `一` / 节 `1.1`）。
+用户拍板：①加每模板开关、默认保持现状；②`H4=a)` 两种语义都要（已由每级「继承前级」覆盖）；
+③祖先段只取裸数字、不带祖先的前缀/后缀（本就如此）。本周期实现该开关。
+
+**做了什么**：
+- `numbering.ts`：新增 `AncestorNumeral = "self" | "arabic"`、`DEFAULT_ANCESTOR_NUMERAL = "self"`、
+  `normalizeAncestorNumeral`；`Template` 加字段 `ancestorNumeral`；`DEFAULT_TEMPLATE` 补 `self`。
+  `buildPrefix` 在拼祖先段时按策略选样式：**末段（当前级）始终套本级样式**，祖先段在 `arabic`
+  下一律阿拉伯、`self` 下各自套自身样式（`i < lastIndex` 判定是否祖先）。占位段（skipFill）不受影响。
+- `schema.ts`：`normalizeTemplate` 解析 `ancestorNumeral`（缺失/非法回退 `self`），随 `serializeTemplate` 落盘。
+- `settings/SettingsTab.ts`：模板编辑面板「起始编号层级」下拉之后，新增「祖先序号渲染」下拉
+  （各自样式 `1.a.①` / 统一阿拉伯 `一 / 1.1`），改动即存盘 + `renumberActiveFile` + 重渲染预览。
+- **剥离无需改动**：`stripPrefix` 的祖先段 token 本就是全样式并集（`innerSegmentToken`），故
+  `arabic` 写出的 `1.1` 能剥、由 `self` 切到 `arabic` 时旧的 `一.1` 也能被识别改写（已加幂等回归）。
+- 测试：`numbering.test.ts` +6（self 保持 `一.1`；arabic 得 `一`/`1.1`/`1.1.1`；末段非阿拉伯保留
+  `1.1.①`；arabic+H4 继承得 `1.1.a)`；H4 不继承得独立 `a)` 与策略无关；self→arabic 改写幂等），
+  `schema.test.ts` +1（规范化/回退）。共 **103 passed**。
+- 版本 0.3.12 → **0.3.13**（manifest/package/lock/versions/release/manifest + README 版本号与功能条目），
+  `npm run release` 重建 `release/`（含 zip）。spec.md §3.5/§3.6 补该字段、组合规则与设计取舍。
+
+**没做什么**（明确边界）：**未碰 M4+ 功能**；未提供第三种「祖先＝当前级样式」(Model B，会把
+`1.1.a)` 变成 `a.a.a)`，无意义)；未让祖先段携带祖先自己的前缀/后缀（按用户③，只取裸数字）；
+`numberSeparator`/`titleSeparator`/`prefix`/`suffix` 仍取**当前级**的（既有行为，未改）。
+
+**下一步**：M3 继续打磨（按实测反馈），或经定优先级后推进 M4 白名单（spec.md §3.7）/ M5（§3.1/§3.2/§3.8）/
+M6（§3.10）。若日后再加序号样式或第三种祖先策略，记得同步 `buildPrefix` 的祖先分支与
+`stripPrefix` 的并集 token。
+
+**验证方式**：`cd obsidian-auto-headings && npm test`（103 passed）、`npm run lint`、`npm run format:check`
+全绿；`npm run release` 重建产物。Obsidian 实测：模板设 H2=中文、H3=阿拉伯、「祖先序号渲染」选
+「统一阿拉伯」→ H2 标题 `一`、H3 子节 `1.1`、`1.1.1`；选「各自样式」→ 回到 `一.1`。
+
+---
+
 ## 2026-06-26 — 升版 0.3.12：release 脚本额外打包 zip（M3 打磨 / 交付物增强）
 
 **交接人**：agent（claude/obsidian-auto-headings-m3-y4vnoo 分支）
