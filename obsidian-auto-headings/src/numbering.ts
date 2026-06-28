@@ -21,6 +21,27 @@ export type NumeralStyle = "arabic" | "cjk" | "circled" | "lower-alpha" | "upper
 export const DEFAULT_TOP_LEVEL = 2;
 
 /**
+ * 「祖先序号渲染」策略：继承前级时，前缀里的**祖先段**（比当前级浅的各段）以何种样式呈现。
+ *
+ * - `self`（默认，向后兼容历史行为）：每个祖先段套用**它自己级别**的 `numeral` 样式。
+ *   适合「提纲惯例」——H3=字母、H4=带圈时 H4 得 `1.a.①`（祖先保留各自字形）。
+ * - `arabic`：所有祖先段一律渲染为**阿拉伯数字**，仅当前级（末段）套用其自身样式。
+ *   适合「中文书惯例」——H2=中文、H3=阿拉伯时得 `一`（H2 标题行）/ `1.1`（H3，祖先转阿拉伯）。
+ *
+ * 注意：仅影响**祖先段**；当前级（末段）始终套用本级 `numeral`。两种惯例方向相反、无法靠单一
+ * 固定模型兼得，故做成每模板可选（见 spec.md §3.6）。
+ */
+export type AncestorNumeral = "self" | "arabic";
+
+/** 「祖先序号渲染」默认值：`self`（=历史行为，祖先各自套用自身样式）。 */
+export const DEFAULT_ANCESTOR_NUMERAL: AncestorNumeral = "self";
+
+/** 规范化「祖先序号渲染」：非法/缺失（含旧模板）回退默认 `self`。 */
+export function normalizeAncestorNumeral(value: unknown): AncestorNumeral {
+	return value === "arabic" ? "arabic" : "self";
+}
+
+/**
  * 规范化「起始编号层级」`topLevel`：夹到合法范围 [1, 6]，非数字回退默认 H2。
  * 含义：比 `topLevel` 浅的标题完全不编号、不改写；它及更深的标题正常编号，并以它为序号第一段。
  */
@@ -118,6 +139,12 @@ export interface Template {
 	 * **由各模板自行决定**（默认模板 = 全局默认）。
 	 */
 	topLevel: number;
+	/**
+	 * 「祖先序号渲染」策略（见 {@link AncestorNumeral}）：继承前级时祖先段的样式。
+	 * 默认 `self`（祖先各自套用自身样式，=历史行为）；`arabic` 则祖先一律阿拉伯。
+	 * **由各模板自行决定**。
+	 */
+	ancestorNumeral: AncestorNumeral;
 }
 
 /** 默认模板：纯阿拉伯多级点分（`1` / `1.1` / `1.1.1` …），见 README 默认 `default.json`。 */
@@ -180,6 +207,7 @@ export const DEFAULT_TEMPLATE: Template = {
 	],
 	skipFill: DEFAULT_SKIP_FILL,
 	topLevel: DEFAULT_TOP_LEVEL,
+	ancestorNumeral: DEFAULT_ANCESTOR_NUMERAL,
 };
 
 /**
@@ -401,6 +429,8 @@ export function buildPrefix(template: Template, level: number, counter: HeadingC
 		// 仅取 topLevel..level 的计数段（counter.sequence 返回 c1..cLevel）。
 		const seq = counter.sequence(level).slice(top - 1);
 		const skipFill = normalizeSkipFill(template.skipFill);
+		const ancestorNumeral = normalizeAncestorNumeral(template.ancestorNumeral);
+		const lastIndex = seq.length - 1; // 末段下标 = 当前级；其余为祖先段。
 		const parts: string[] = [];
 		seq.forEach((value, i) => {
 			// 标题层级跳跃（如 H3 → H5）时，缺失的中间级别计数器值为 0、从未实例化。
@@ -416,10 +446,14 @@ export function buildPrefix(template: Template, level: number, counter: HeadingC
 				parts.push(skipFill.placeholder);
 				return;
 			}
-			// 正常段：每段套用其所在级别的 numeral 样式（seq[i] 对应级别 top + i）。
+			// 正常段：seq[i] 对应级别 top + i。
+			// - 末段（当前级）：始终套用本级 numeral 样式。
+			// - 祖先段：按「祖先序号渲染」策略——`self` 用各祖先自身样式（历史行为），
+			//   `arabic` 一律阿拉伯（中文书惯例：H2 标题 `一`、H3 子节 `1.1`）。
 			const segLevel = top + i;
 			const segFmt = getLevelFormat(template, segLevel) ?? fmt;
-			parts.push(renderNumeral(segFmt.numeral, value));
+			const style = i < lastIndex && ancestorNumeral === "arabic" ? "arabic" : segFmt.numeral;
+			parts.push(renderNumeral(style, value));
 		});
 		numberStr = parts.join(fmt.numberSeparator);
 	} else {
