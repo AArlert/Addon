@@ -3,10 +3,11 @@
 > 一款 Obsidian 插件，按可完全自定义的模板自动为 Markdown 文件中的标题编号——在你编辑后经防抖延迟把编号前缀直接写入文件，让文档始终整洁一致。首版仅提供中文界面。
 
 本文件是面向读者的**简介**；详细需求 / 规格 / Roadmap 见 [`doc/spec.md`](./doc/spec.md)，
-开发交接日志见 [`doc/log.md`](./doc/log.md)，状态索引见 [`doc/status.jsonl`](./doc/status.jsonl)。
+开发交接日志见 [`doc/log.md`](./doc/log.md)，状态索引见 [`doc/status.jsonl`](./doc/status.jsonl)，
+测试场景与真值表（含已知 bug 清单）见 [`doc/testplan.md`](./doc/testplan.md)。
 可直接实测的插件产物在 [`release/`](./release/)。
 
-## 当前功能（截至 v0.3.14）
+## 当前功能（截至 v0.3.16）
 
 -   **按模板自动编号**：在编辑后防抖触发，对整个文件重新计算编号前缀并以单一事务写回。
 -   **多模板**：可创建多个具名模板，每个模板独立配置（按路径选模板属 M5，尚未实现）。
