@@ -501,6 +501,29 @@ function escapeRegExp(s: string): string {
 	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * 「容差分隔符」字符类：常见的序号 / 标题分隔标点与空白（空格、Tab、`.`、`、`、`-`、`)` 等）。
+ *
+ * 用途（见 doc/testplan.md B1/B4/B5）：用户改了模板的「序号间隔符」或「标题间隔符」后，文件里用
+ * **旧分隔符**写出的历史前缀已无法用当前模板值精确匹配（旧值不在模板里了）。{@link stripPrefix}
+ * 除精确匹配当前分隔符外，再容差匹配这一标点 / 空白集合的连续串，即可剥掉旧前缀、避免新前缀叠
+ * 加（用户报告的「序号样式改中文 → 标题间隔符改『、』后得 `一、一 标题`」类 bug）。
+ *
+ * **安全边界**：本类**仅含标点与空白**，不含可能属于标题正文的字母 / 数字 / 一般汉字；且容差分支
+ * 要求**至少一个**分隔字符（`+`）。前缀仍必须以序号 token 起头（空前缀时），故**不以序号起头的
+ * 标题完全不受影响**，误伤面与历史一致（仅「以序号 + 分隔符起头」的标题会被当前缀覆盖，这与
+ * spec.md §2.3「对编号前缀的手动编辑属预期行为」一致）。
+ */
+const SEPARATOR_CLASS = "[ \\t.,;:、，。．·：；)）】」』>\\]-]";
+
+/**
+ * 构造「容差分隔符」匹配片段：优先精确匹配当前模板的分隔符 `exact`（含其为空的情形），
+ * 否则容差匹配一段 {@link SEPARATOR_CLASS}（≥1 个）。用于剥离用旧分隔符写出的历史前缀。
+ */
+function tolerantSeparator(exact: string): string {
+	return `(?:${escapeRegExp(exact)}|${SEPARATOR_CLASS}+)`;
+}
+
 /** 某序号样式可能出现的字符类片段，用于剥离已有前缀。 */
 function numeralTokenPattern(style: NumeralStyle): string {
 	switch (style) {
@@ -613,16 +636,19 @@ export function stripPrefix(text: string, level: number, template: Template): st
 	const skipFill = normalizeSkipFill(template.skipFill);
 	const inner = innerSegmentToken(skipFill);
 	const last = lastSegmentToken(template, skipFill);
-	const sep = escapeRegExp(fmt.numberSeparator);
+	// 序号间隔符与标题间隔符均用「容差」匹配：除当前模板值外，也认得用旧分隔符写出的历史前缀，
+	// 从而在用户改了间隔符后仍能剥净旧前缀、不叠加（见 {@link tolerantSeparator}、testplan B1/B4/B5）。
+	const sep = tolerantSeparator(fmt.numberSeparator);
+	const titleSep = tolerantSeparator(fmt.titleSeparator);
 	// 与 buildPrefix 的结构对应：继承前级时前缀形如 `父段{sep}…{sep}父段{sep}本段`，父级段数随层级与
 	// 跳级而变；父段用宽 token（含历史样式），本段用收口 token（字母样式仅在模板在用时纳入）。
 	const numberPattern = fmt.inherit ? `(?:${inner}${sep})*${last}` : last;
 
 	// 与 buildPrefix 对应：前缀 + 完整序号 + 后缀 + 标题间隔符。后缀（如「章」）须一并剥离。
+	// 前缀（prefix）与后缀（suffix）仍按当前值精确匹配——它们是用户自填的任意文本，容差匹配会大幅
+	// 放大对真实标题的误伤（见 testplan：B2/B3「改前缀/后缀」是另一类，需更谨慎的方案，暂未纳入）。
 	const pattern = new RegExp(
-		`^${escapeRegExp(fmt.prefix)}${numberPattern}${escapeRegExp(fmt.suffix)}${escapeRegExp(
-			fmt.titleSeparator,
-		)}`,
+		`^${escapeRegExp(fmt.prefix)}${numberPattern}${escapeRegExp(fmt.suffix)}${titleSep}`,
 	);
 
 	// 循环剥离，清掉历史上叠加的多层前缀；每轮命中至少移除一个字符，故必然收敛。
