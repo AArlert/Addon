@@ -465,10 +465,15 @@ export function buildPrefix(template: Template, level: number, counter: HeadingC
 }
 
 /**
- * 为设置 GUI 生成某级的实时预览前缀序列（如 H3 → `["1.1.1", "1.1.2", "1.1.3"]`）。
+ * 为设置 GUI 生成某级的实时预览前缀序列（如 H3 → `["1.1.1 ", "1.1.2 ", "1.1.3 "]`）。
  *
  * 模拟一个所有父级均为 1 的计数器状态，并让本级依次取 1、2、3，套用模板格式拼装前缀。
- * 仅用于面板展示，不影响真实编号。返回值已 trim 末尾空白以便紧凑展示。
+ * 仅用于面板展示，不影响真实编号。
+ *
+ * **返回前缀的原样字符串、不 trim 任何空白**——这样预览能**如实**反映「标题间隔符」里用户敲入的
+ * 内容（含尾随空格）：间隔符填 `" "` 预览得 `1 标题`、填 `". "` 得 `1. 标题`。此前会 `trim` 末尾
+ * 空白，导致预览把 `" "`/`". "` 显示成 `1标题`/`1.标题`，让用户误以为「敲的空格没被识别 / `. ` 被吃成
+ * `.`」（实际编号写入一直是正确的，仅预览失真）。
  */
 export function previewLevel(template: Template, level: number, count = 3): string[] {
 	const top = normalizeTopLevel(template.topLevel);
@@ -486,7 +491,7 @@ export function previewLevel(template: Template, level: number, count = 3): stri
 		if (i > 0) {
 			counter.bump(level); // 本级递增，得到同级的下一个序号。
 		}
-		out.push(buildPrefix(template, level, counter).replace(/\s+$/, ""));
+		out.push(buildPrefix(template, level, counter));
 	}
 	return out;
 }

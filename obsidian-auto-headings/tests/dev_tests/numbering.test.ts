@@ -7,6 +7,7 @@ import {
 	HeadingCounter,
 	buildPrefix,
 	numberHeadings,
+	previewLevel,
 	renderNumeral,
 	renumberContent,
 	stripPrefix,
@@ -100,6 +101,31 @@ describe("renderNumeral", () => {
 		expect(renderNumeral("lower-alpha", 28)).toBe("ab");
 		expect(renderNumeral("upper-alpha", 1)).toBe("A");
 		expect(renderNumeral("upper-alpha", 52)).toBe("AZ");
+	});
+});
+
+describe("previewLevel 如实保留标题间隔符（含尾随空格，回归 bug）", () => {
+	function withSep(sep: string): Template {
+		return {
+			...DEFAULT_TEMPLATE,
+			levels: {
+				...DEFAULT_TEMPLATE.levels,
+				h2: { ...DEFAULT_TEMPLATE.levels.h2, titleSeparator: sep },
+			},
+		};
+	}
+
+	it("间隔符为空格：预览保留尾随空格（不再被 trim 成「1」）", () => {
+		// 此前 previewLevel 会 trim 末尾空白，使预览把「 」显示成「1」，让用户误以为空格没生效。
+		expect(previewLevel(withSep(" "), 2)).toEqual(["1 ", "2 ", "3 "]);
+	});
+
+	it("间隔符为「. 」：预览保留点+空格（不再被 trim 成「1.」）", () => {
+		expect(previewLevel(withSep(". "), 2)).toEqual(["1. ", "2. ", "3. "]);
+	});
+
+	it("间隔符无尾随空白（如「、」）：原样呈现", () => {
+		expect(previewLevel(withSep("、"), 2)).toEqual(["1、", "2、", "3、"]);
 	});
 });
 
