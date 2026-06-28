@@ -95,6 +95,45 @@ obsidian-auto-headings/
 
 ---
 
+## 2026-06-26 — 升版 0.3.14：修复标题间隔符预览失真（尾随空格被 trim）（M3 打磨）
+
+**交接人**：agent（claude/obsidian-auto-headings-m3-y4vnoo 分支）
+
+**用户反馈两点疑似 bug**：①标题间隔符默认是空格，改成别的后想改回空格、在输入框敲一个空格「似乎
+识别不出来」；②间隔符填 `". "` 好像只能格式化成 `"."`。要求确认并修复，诉求是「用户在间隔符里敲
+什么，插件就用什么」。
+
+**核查结论（实测）：实际编号一直是对的，bug 只在 GUI 预览。**
+
+- `renumberContent` 实测：`sep=" "` → `## 1 章`、`sep=". "` → `## 1. 章`，且二次编号幂等；
+  `serializeTemplate`/`normalizeTemplate` 往返也**原样保留** `" "` 与 `". "`。即引擎与存储早已「敲啥用啥」。
+- 真正的坑在 `previewLevel`：它对 `buildPrefix` 结果做了 `.replace(/\s+$/, "")`，把**预览**里的尾随
+  空白吃掉，于是面板把 `" "` 显示成 `1标题`、`". "` 显示成 `1.标题`，让用户**误判**「空格没生效 /
+  `. ` 被吃成 `.`」。
+
+**做了什么**：
+
+- `numbering.ts`：`previewLevel` **去掉尾随 trim**，原样返回 `buildPrefix` 前缀（`["1 ","2 ","3 "]`、
+  `["1. ",…]`）。预览经 `previewText` 拼 `${s}标题` 后即 `1 标题` / `1. 标题`，尾随空格因其后紧跟
+  「标题」而清晰可见，用户能得到「确实生效」的反馈。更新了该函数 JSDoc。
+- 测试：`numbering.test.ts` 新增 `previewLevel` describe（空格 / `". "` / `"、"` 三例如实保留），共
+  **106 passed**。
+- spec.md §2.3 边界表新增一行（间隔符含尾随空白＝所见即所得 + 预览已修复说明）。
+- 版本 0.3.13 → **0.3.14**（manifest/package/lock/versions/release/manifest + README 版本号），
+  `npm run release` 重建产物。
+
+**没做什么**（明确边界）：**未改编号 / 存储逻辑**（本就正确）；**未碰 M4+**；未改 `textCell` 输入控件——
+HTML 文本框里只含一个空格时看起来「空」是输入框固有现象（值其实是 `" "`，placeholder 因有值而隐藏），
+现在靠**预览**给出生效反馈即可，不过度改造控件。
+
+**下一步**：继续 M3 打磨（按实测反馈），或经定优先级后推进 M4 白名单 / M5 / M6。
+
+**验证方式**：`npm test`（106 passed）、`npm run lint`、`npm run format:check` 全绿；`npm run release`
+重建产物。Obsidian 实测：模板某级标题间隔符填一个空格 → 预览显示 `1 标题`（有可见间距）、文件得
+`## 1 章`；填 `". "` → 预览 `1. 标题`、文件得 `## 1. 章`。
+
+---
+
 ## 2026-06-26 — 升版 0.3.13：新增「祖先序号渲染」开关 ancestorNumeral（M3 打磨）
 
 **交接人**：agent（claude/obsidian-auto-headings-m3-y4vnoo 分支）
