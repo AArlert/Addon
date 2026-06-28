@@ -98,6 +98,60 @@ obsidian-auto-headings/
 
 ---
 
+## 2026-06-28 — 升版 0.3.17：新增 UVM 风格「约束随机序列」压测框架（M3 打磨 / 测试基建）
+
+**交接人：** 分支 `claude/obsidian-auto-headings-testplan-nwl2pt`
+
+**做了什么：**
+
+- **新增 UVM 风格随机序列测试框架**（`tests/dev_tests/uvm/` + 入口 `tests/dev_tests/random_sequence.test.ts`），
+  借鉴硬件验证 UVM 思想压测状态转移 bug：
+  - **Sequencer**：约束随机生成「编辑文本 / 改模板字段 / 触发编号」的长操作序列（`World.step`）。
+  - **Driver**：把操作同步施加到「裸文档真值 `bare`」与「编辑器文本 `rendered`」（行级锁步）。
+  - **Reference-model 记分板**：每次触发后断言 `join(rendered) === renumberContent(serialize(bare), 模板)`
+    ——即「带历史前缀剥+重编」必须等于「从裸文本直接编号」。任何前缀叠加/残留当场被抓，且参考侧复用
+    可信 build 路径、不重复实现逻辑、不会和 DUT 一起错。
+  - **功能覆盖率**：14 类操作 + 各序号样式 + inherit/skipFill/ancestor/topLevel降/栅栏/白名单/空标题/
+    深层级/跳级/自食标题等 bin 必须全部撞到，否则报「覆盖率未闭合」。
+  - **可复现**：mulberry32 种子 RNG；失败抛 `SequenceError`，含 seed + 完整操作轨迹（含每次 trigger）+
+    DUT/期望/裸文档三方文本。`AAH_FUZZ_SEED=N AAH_FUZZ_RUNS=1` 即复现单条。
+- **默认随 `npm test` 跑 400 条 × 40 步（<1s）**；新增 `npm run test:fuzz`（5000×80）供改引擎后压一遍；
+  可经 `AAH_FUZZ_RUNS/OPS/SEED` 调参。
+- **bring-up 实战**：在 1.5 万条随机序列里先后撞出三类问题并逐一收口（**关键，下一手必读**）——
+  1. **栅栏失衡**：`deleteLine` 删掉代码块闭合 ``` 会把已编号标题事后埋进未闭合代码块、冻结前缀够不着
+     → 改为 deleteLine 不删栅栏定界行（模型局限，非 bug）。
+  2. **L2**：前缀非空 + 数字起头标题（`2024 总结`）「带前缀后才被吃」是历史相关行为，参考模型表达不了
+     → 前缀非空时回避数字/字母起头标题（spec §2.3 取舍，E5 已静态覆盖）。
+  3. **L1**：某级从字母样式改走且无级别再用字母时，旧 `A)` 剥不掉会叠加 → 随机样式只用 arabic/cjk/circled
+     （字母不在 `ALWAYS_STRIPPABLE_STYLES`，有意取舍）。
+  最终对约束空间 **1.5 万条全绿、覆盖率闭合**。
+- **约束 = 当前 strip 健壮性的精确刻画**：prefix/suffix 整条固定、inherit 仅前后缀空时翻转、topLevel 只减
+  不增、样式不混字母、前缀非空回避数字/字母起头标题——每条都对应一个已登记的 bug/取舍（B2/B3/C3/L1/L2）。
+- **文档**：testplan 新增 §3.1（L1/L2 取舍登记）+ §4（UVM 框架说明）+ 工作流程加「改引擎跑 test:fuzz、
+  修好 bug 放开对应约束」；新增 `tests/dev_tests/uvm/README.md`；CLAUDE.md §5 增补随机测试通用指引。
+- 升版 0.3.16 → **0.3.17**，重生 `release/`。
+
+**没做什么（明确边界）：**
+
+- **没改编号引擎 `src/`**（本轮纯测试基建 + 文档）；B2/B3/C3 仍未修——它们现由 UVM 约束**圈住**，等后续
+  专门修复时放开对应约束即自动获得随机覆盖。
+- 框架只压**引擎层**（`renumberContent`）；未驱动真实 Obsidian / main.ts 的防抖+事务层（上一轮讨论的
+  Layer 2/3，留作后续）。
+
+**下一步（给接手 Agent 的明确起点）：**
+
+1. 修 B2/B3/C3 时：先在 `tests/dev_tests/uvm/framework.ts` **放开对应约束**（注释里已标明每条约束对应谁），
+   `npm run test:fuzz` 跑红 → 据 `SequenceError` 的 seed/轨迹定位 → 改 `src/numbering.ts` → 再跑绿。
+2. 想覆盖防抖/事务/frontmatter 触发层：参 0.3.16 之后那轮讨论，给 main.ts 建 mock-Obsidian 集成测试（Layer 2）。
+
+**验证方式：**
+
+- `npm test`（112 passed，含默认 400 条随机序列）/ `lint` / `format:check` 全绿；`npm run test:fuzz` 与
+  `AAH_FUZZ_RUNS=15000 AAH_FUZZ_OPS=60 ... --testTimeout=120000` 均绿、覆盖率闭合；`npm run release` 重生
+  `release/`（0.3.17）。
+
+---
+
 ## 2026-06-28 — 升版 0.3.16：修复「改分隔符后再触发前缀叠加」（testplan B1/B4/B5，M3 打磨）
 
 **交接人：** 分支 `claude/obsidian-auto-headings-testplan-nwl2pt`
