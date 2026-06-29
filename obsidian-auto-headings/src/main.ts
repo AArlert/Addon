@@ -15,6 +15,7 @@ import {
 import { AutoHeadingsSettingTab } from "./settings/SettingsTab";
 import { readFileSwitch } from "./frontmatter";
 import { renumberContent, type Template } from "./numbering";
+import { clearNumberingContent } from "./cleanup";
 import { parseHeadings, type Heading } from "./parser";
 import { resolvePathRule } from "./pathrules";
 import { TemplateStore } from "./templates/TemplateStore";
@@ -77,6 +78,15 @@ export default class AutoHeadingsPlugin extends Plugin {
 			name: "立即重新编号（当前文件）",
 			editorCallback: (editor, ctx) => {
 				this.runImmediateRenumber(editor, ctx);
+			},
+		});
+
+		// 清除当前文件编号：剥离当前文件所有标题的编号前缀（M6，见 spec.md §3.10）。
+		this.addCommand({
+			id: "clear-numbering",
+			name: "清除当前文件编号",
+			editorCallback: (editor, ctx) => {
+				this.runClearNumbering(editor, ctx);
 			},
 		});
 
@@ -225,6 +235,76 @@ export default class AutoHeadingsPlugin extends Plugin {
 			return;
 		}
 		this.applyRenumber(editor, template);
+	}
+
+	/**
+	 * 「清除当前文件编号」命令（**手动路径**，见 spec.md §3.10）：剥离当前文件所有标题的编号
+	 * 前缀（全样式并集剥离器，独立于模板），以单一事务写回。绕过防抖与开关（与「立即重新编号」对称）。
+	 */
+	private runClearNumbering(editor: Editor, ctx: MarkdownView | MarkdownFileInfo): void {
+		// 取消该文件的待处理防抖更新，避免清除后立即被重新编号。
+		const path = ctx.file?.path;
+		if (path) {
+			const existing = this.debounceTimers.get(path);
+			if (existing !== undefined) {
+				window.clearTimeout(existing);
+				this.debounceTimers.delete(path);
+			}
+		}
+
+		const { prefixes, suffixes } = this.strippableAffixes();
+		const oldContent = editor.getValue();
+		const newContent = clearNumberingContent(oldContent, {
+			strippablePrefixes: prefixes,
+			strippableSuffixes: suffixes,
+		});
+
+		if (newContent === oldContent) {
+			new Notice("当前文件无可清除的编号前缀");
+			return;
+		}
+
+		const oldLines = oldContent.split("\n");
+		const newLines = newContent.split("\n");
+		const changes: EditorChange[] = [];
+		for (let i = 0; i < newLines.length; i++) {
+			if (oldLines[i] !== newLines[i]) {
+				changes.push({
+					from: { line: i, ch: 0 },
+					to: { line: i, ch: oldLines[i].length },
+					text: newLines[i],
+				});
+			}
+		}
+		if (changes.length > 0) {
+			editor.transaction({ changes });
+		}
+		new Notice("已清除编号");
+	}
+
+	/**
+	 * 清除全库所有 Markdown 文件的编号前缀（见 spec.md §3.10「清除全库编号」按钮）。
+	 * 由 SettingsTab 的 ClearVaultModal 在二次确认后调用。
+	 *
+	 * **不在 Obsidian 编辑历史内（vault.modify 无撤销），建议用户操作前备份。**
+	 * 逐文件读取 → 清除 → 写回；仅修改实际有变化的文件。
+	 */
+	async clearAllVaultNumbering(): Promise<void> {
+		const { prefixes, suffixes } = this.strippableAffixes();
+		const files = this.app.vault.getMarkdownFiles();
+		let count = 0;
+		for (const file of files) {
+			const content = await this.app.vault.read(file);
+			const newContent = clearNumberingContent(content, {
+				strippablePrefixes: prefixes,
+				strippableSuffixes: suffixes,
+			});
+			if (newContent !== content) {
+				await this.app.vault.modify(file, newContent);
+				count++;
+			}
+		}
+		new Notice(`已清除全库编号（共修改 ${count} 个文件）`);
 	}
 
 	async loadSettings(): Promise<void> {

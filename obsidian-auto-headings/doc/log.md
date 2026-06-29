@@ -31,6 +31,44 @@
 
 ---
 
+## 2026-06-29 M6 落地（claude/obsidian-auto-headings-m6-ik65hm）
+
+### 做了什么
+
+- **`src/cleanup.ts`（新建）** — 全样式并集剥离器 `clearNumberingContent`：arabic ∪ cjk ∪ circled ∪ lower-alpha ∪ upper-alpha，独立于任何模板，仅剥一层（「2024 折中」），支持可选 `strippablePrefixes/Suffixes` 提高历史前缀识别率。
+- **`src/numbering.ts`** — 新增导出 `stripPrefixBroad`（供 cleanup.ts 引用）；C3 修复：`numberHeadings` 对 `level < top` 分支改为调用 `stripHeadingPrefix`，使升高 topLevel 后降出范围的标题旧前缀被剥除。
+- **`src/main.ts`** — 新增命令「清除当前文件编号」（`runClearNumbering`，带 Notice）；新增 `clearAllVaultNumbering` 方法（遍历全库 .md 文件逐一清除）。
+- **`src/settings/SettingsTab.ts`** — 新增防抖延迟滑块（50–2000ms，带重置按钮）；新增「危险区域」清除全库编号按钮 + `ClearVaultModal` 二次确认对话框。
+- **`tests/dev_tests/cleanup.test.ts`（新建）** — H1-H4 清除场景 + C3 修复验证（含幂等性、非编号 H1 不受影响）。
+- **`tests/dev_tests/uvm/framework.ts`** — C3 约束放开：`setTopLevelLower` → `setTopLevel`，允许 topLevel 双向随机（1–4），新增 `topLevelRaised` 覆盖率 bin，`gaps()` 同步追踪。
+- 版本号 0.5.0 → **0.6.0**（package.json / manifest.json / versions.json）。
+- `npm run release`：release/ 已更新（main.js / manifest.json / styles.css / zip）。
+
+### 没做什么 / 已知限制
+
+- H5（用户手写数字标题被误剥）属已接受风险（spec §2.3），不修。
+- `# 2024 总结` 在 topLevel=H2（H1 低于 topLevel）时也会被 C3 修复剥去 `2024`（无状态引擎无法区分插件前缀与用户数字标题），对应 numbering.test.ts 已更新文档该行为为预期内取舍。
+- GUI（设置面板滑块、对话框）属 DOM 层，未自动化测试，留手验。
+- 余下 Milestone（M7 以后）见 spec.md Roadmap。
+
+### 下一步
+
+- 手验：防抖滑块（50/300/2000ms 实测延迟）、「清除当前文件编号」命令、「清除全库编号」按钮（确认双对话框）。
+- C4（topLevel=H3 时 H2 不编号场景）可补一条 dev test（testplan C4 🔲）。
+- 无其他待修 bug。接下来看 M7 Roadmap 或用户反馈。
+
+### 验证方式
+
+```
+cd obsidian-auto-headings
+npm test       # 191 passed
+npm run lint   # 无报错
+npm run format:check  # 格式全绿
+npm run test:fuzz     # 5000×80 全绿（C3 约束放开后覆盖率闭合）
+```
+
+---
+
 ## 目录结构约定（按职责分类）
 
 ```
