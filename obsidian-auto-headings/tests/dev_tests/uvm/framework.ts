@@ -128,10 +128,16 @@ const SUFFIX_CANDIDATES = ["章", "）"];
 const LEVEL_POOL = [1, 2, 2, 3, 3, 3, 4, 4, 5, 6];
 
 /**
- * **字母样式**（lower/upper-alpha）：仅 explore 模式纳入随机样式池。
- * 默认仍按 L1 取舍排除（见框架顶部注释）；explore 放开以撞「改走字母后残留」「字母自食标题」等。
+ * **字母 / 罗马数字样式**（lower/upper-alpha, lower/upper-roman）：仅 explore 模式纳入随机样式池。
+ * 默认仍按 L1 取舍排除（见框架顶部注释）；explore 放开以撞「改走字母/罗马后残留」「自食标题」等。
  */
-const NUMERALS_WITH_ALPHA: NumeralStyle[] = [...NUMERALS, "lower-alpha", "upper-alpha"];
+const NUMERALS_WITH_ALPHA: NumeralStyle[] = [
+	...NUMERALS,
+	"lower-alpha",
+	"upper-alpha",
+	"lower-roman",
+	"upper-roman",
+];
 
 /**
  * 「就地编辑」追加用的**安全碎片**：纯中文、不以数字 / 分隔符 / 字母 / 空白起头。

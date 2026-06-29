@@ -15,7 +15,14 @@
 import { Heading, parseHeadings } from "./parser";
 
 /** 序号样式枚举（见 README 3.6）。 */
-export type NumeralStyle = "arabic" | "cjk" | "circled" | "lower-alpha" | "upper-alpha";
+export type NumeralStyle =
+	| "arabic"
+	| "cjk"
+	| "circled"
+	| "lower-alpha"
+	| "upper-alpha"
+	| "lower-roman"
+	| "upper-roman";
 
 /** 起始编号层级的默认值：H2（即默认 H1 不编号、作为标题/分节）。 */
 export const DEFAULT_TOP_LEVEL = 2;
@@ -423,9 +430,43 @@ function toAlpha(value: number, base: number): string {
 	return out;
 }
 
+/** 罗马数字值-字母对照表（减法规则，降序排列）。 */
+const ROMAN_MAP: readonly [number, string][] = [
+	[1000, "m"],
+	[900, "cm"],
+	[500, "d"],
+	[400, "cd"],
+	[100, "c"],
+	[90, "xc"],
+	[50, "l"],
+	[40, "xl"],
+	[10, "x"],
+	[9, "ix"],
+	[5, "v"],
+	[4, "iv"],
+	[1, "i"],
+];
+
+/** 将正整数渲染为罗马数字；`uppercase` 为 true 时输出大写。超出范围（<1）回退为阿拉伯。 */
+function toRoman(value: number, uppercase: boolean): string {
+	if (value < 1) {
+		return String(value);
+	}
+	let n = value;
+	let out = "";
+	for (const [v, s] of ROMAN_MAP) {
+		while (n >= v) {
+			out += s;
+			n -= v;
+		}
+	}
+	return uppercase ? out.toUpperCase() : out;
+}
+
 /**
  * 将一个纯阿拉伯整数渲染为指定序号样式的字符串。
- * 支持 `arabic` / `cjk` / `circled` / `lower-alpha` / `upper-alpha`（见 README 3.6）。
+ * 支持 `arabic` / `cjk` / `circled` / `lower-alpha` / `upper-alpha` /
+ * `lower-roman` / `upper-roman`（见 README 3.6）。
  */
 export function renderNumeral(style: NumeralStyle, value: number): string {
 	switch (style) {
@@ -439,6 +480,10 @@ export function renderNumeral(style: NumeralStyle, value: number): string {
 			return toAlpha(value, 0x61); // 'a'
 		case "upper-alpha":
 			return toAlpha(value, 0x41); // 'A'
+		case "lower-roman":
+			return toRoman(value, false);
+		case "upper-roman":
+			return toRoman(value, true);
 	}
 }
 
@@ -563,6 +608,15 @@ const TITLE_SEPARATOR_CLASS = "[ \\t.,;:、，。．·：；)）】」』>\\]-]"
 const NUMBER_SEPARATOR_CLASS = "[.,;:、，。．·：；)）】」』>\\]-]";
 
 /**
+ * Word Joiner（U+2060）：零宽不换行字符，在导出 / 复制时不可见。
+ *
+ * 导出用途：可在插件写出的前缀末尾插入该字符作为**精确结束标记**，从而无歧义地区分「前缀」与「正文」，
+ * 解决 C3 修复与「2024 折中」的历史遗留问题。当前版本**尚未**将其写入文件（已在 {@link stripPrefix} /
+ * {@link stripPrefixBroad} 加入快速路径，待写出路径就绪时即可启用）。
+ */
+export const WORD_JOINER = "⁠";
+
+/**
  * 构造「容差分隔符」匹配片段：优先精确匹配当前模板的分隔符 `exact`（含其为空的情形），
  * 否则容差匹配一段给定字符类 `charClass`（≥1 个）。用于剥离用旧分隔符写出的历史前缀。
  *
@@ -571,6 +625,26 @@ const NUMBER_SEPARATOR_CLASS = "[.,;:、，。．·：；)）】」』>\\]-]";
  */
 function tolerantSeparator(exact: string, charClass: string): string {
 	return `(?:${escapeRegExp(exact)}|${charClass}+)`;
+}
+
+/**
+ * 构造「容差**段间**分隔符」匹配片段：在 {@link tolerantSeparator} 基础上，当 `titleSep`
+ * 恰好落在 `charClass` 字符类里时，为容差分支额外加否定前瞻 `(?!titleSep)`。
+ *
+ * **解决 U2/B10 bug**：`titleSep` 为「数字间隔符类」标点（如 `。`）时，若容差分支照常匹配，
+ * 则 `(?:inner_sep)*last` 会把「标题文本起始的 `2024`」误作第二段段间分隔符后的序号吞掉
+ * （`1。2024 总结` → `总结`，破坏 E5b 承诺）。加否定前瞻后，当前位置以 `titleSep` 开头时
+ * 容差分支拒绝匹配，于是段间正则在 `titleSep` 处停止，让标题间隔符路径接管——`2024 总结` 完整保留。
+ *
+ * 若 `titleSep` 不在 `charClass` 字符类里（如默认空格不在 {@link NUMBER_SEPARATOR_CLASS}），
+ * 则退化为与 {@link tolerantSeparator} 等价（无性能损失）。
+ */
+function tolerantInnerSeparator(numberSep: string, charClass: string, titleSep: string): string {
+	if (titleSep && new RegExp(charClass).test(titleSep)) {
+		const escaped = escapeRegExp(titleSep);
+		return `(?:${escapeRegExp(numberSep)}|(?!${escaped})${charClass}+)`;
+	}
+	return tolerantSeparator(numberSep, charClass);
 }
 
 /**
@@ -604,6 +678,10 @@ function numeralTokenPattern(style: NumeralStyle): string {
 			return "[a-z]+";
 		case "upper-alpha":
 			return "[A-Z]+";
+		case "lower-roman":
+			return "[ivxlcdm]+";
+		case "upper-roman":
+			return "[IVXLCDM]+";
 	}
 }
 
@@ -614,6 +692,8 @@ const ALL_NUMERAL_STYLES: NumeralStyle[] = [
 	"circled",
 	"lower-alpha",
 	"upper-alpha",
+	"lower-roman",
+	"upper-roman",
 ];
 
 /**
@@ -666,7 +746,14 @@ function lastSegmentToken(template: Template, skipFill: SkipFill): string {
 		template.levels.h5,
 		template.levels.h6,
 	]) {
-		if (lvl.numeral === "lower-alpha" || lvl.numeral === "upper-alpha") {
+		// 字母 / 罗马数字样式误伤面大（会吃掉「API 设计」「VI. 章节」等英文开头标题），
+		// 故仅在模板实际使用时纳入（见 spec §3.10）。
+		if (
+			lvl.numeral === "lower-alpha" ||
+			lvl.numeral === "upper-alpha" ||
+			lvl.numeral === "lower-roman" ||
+			lvl.numeral === "upper-roman"
+		) {
 			styles.add(lvl.numeral);
 		}
 	}
@@ -704,6 +791,13 @@ export function stripPrefix(
 	template: Template,
 	options: Pick<NumberOptions, "strippablePrefixes" | "strippableSuffixes"> = {},
 ): string {
+	// WJ 快速路径：若标题已含 Word Joiner 标记，精确剥离到标记处（包含标记本身），O(n) 无正则开销。
+	// 当前版本写出路径尚未插入 WJ，此路径为前向兼容预留（未来启用写出 WJ 后即生效）。
+	const wjIdx = text.indexOf(WORD_JOINER);
+	if (wjIdx >= 0) {
+		return text.slice(wjIdx + 1);
+	}
+
 	const fmt = getLevelFormat(template, level);
 	if (!fmt) {
 		return text;
@@ -712,10 +806,14 @@ export function stripPrefix(
 	const skipFill = normalizeSkipFill(template.skipFill);
 	const inner = innerSegmentToken(skipFill);
 	const last = lastSegmentToken(template, skipFill);
-	// 序号间隔符与标题间隔符均用「容差」匹配：除当前模板值外，也认得用旧分隔符写出的历史前缀，
-	// 从而在用户改了间隔符后仍能剥净旧前缀、不叠加（见 {@link tolerantSeparator}、testplan B1/B4/B5）。
-	// 注意两者用**不同**字符类：段间序号间隔符排除空格（避免把 `1 2024` 当两段序号），标题间隔符含空格。
-	const sep = tolerantSeparator(fmt.numberSeparator, NUMBER_SEPARATOR_CLASS);
+	// 段间序号间隔符用 tolerantInnerSeparator（而非 tolerantSeparator），当 titleSep 字符落在
+	// NUMBER_SEPARATOR_CLASS 里时加否定前瞻，防止 `。` 等标题间隔符被当作段间分隔符消费，
+	// 从而修复 U2/B10 bug（titleSep 为「数字间隔符类」标点时 E5b 承诺失效，见 testplan §3.2 B10）。
+	const sep = tolerantInnerSeparator(
+		fmt.numberSeparator,
+		NUMBER_SEPARATOR_CLASS,
+		fmt.titleSeparator,
+	);
 	const titleSep = tolerantSeparator(fmt.titleSeparator, TITLE_SEPARATOR_CLASS);
 	// 与 buildPrefix 的结构对应：继承前级时前缀形如 `父段{sep}…{sep}父段{sep}本段`。
 	// **父级段恒用可选 `(?:…)*` 匹配，不看当前 `inherit`**：历史前缀可能是在 `inherit=true` 时写的
@@ -1002,10 +1100,17 @@ export function numberHeadings(
 		counter.bump(level);
 
 		// 低于起始编号层级：不编号，但剥除可能残留的旧编号前缀（C3 修复，见 testplan §C3）。
-		// 用与已编号标题相同的剥离器（stripHeadingPrefix），不另引入更激进的全样式剥离——
-		// 字母样式仅在模板实际使用时才参与，避免「API 设计」等以字母起头的标题被误剥。
+		// 采用**循环剥离到定点**（而非单次剥离）修复 U1/C6 bug：标题文本含多层「数字+空格」时，
+		// 单次剥离只去一层，每次触发侵蚀一层（非幂等）；循环直到不再变化，保证单次触发即到定点，
+		// 此后重复触发稳定。WJ 快速路径由 stripPrefix 内部处理（见 WORD_JOINER 注释）。
 		if (level < top) {
-			const text = stripHeadingPrefix(heading, level, template, options);
+			let current = heading.rawText;
+			let prev: string;
+			do {
+				prev = current;
+				current = stripPrefix(current, level, template, options);
+			} while (current !== prev);
+			const text = current.replace(/\s+$/, "");
 			return {
 				level,
 				text,
@@ -1048,6 +1153,11 @@ export function stripPrefixBroad(
 	knownPrefixes: readonly string[] = [],
 	knownSuffixes: readonly string[] = [],
 ): string {
+	// WJ 快速路径：前向兼容，当写出路径启用 WORD_JOINER 标记时即生效。
+	const wjIdx = rawText.indexOf(WORD_JOINER);
+	if (wjIdx >= 0) {
+		return rawText.slice(wjIdx + 1).replace(/\s+$/, "");
+	}
 	const allToken = `(?:${ALL_NUMERAL_STYLES.map(numeralTokenPattern).join("|")})`;
 	const sep = `${NUMBER_SEPARATOR_CLASS}+`;
 	const numberPattern = `(?:${allToken}${sep})*${allToken}`;

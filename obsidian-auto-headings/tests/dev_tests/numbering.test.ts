@@ -5,6 +5,7 @@ import {
 	DEFAULT_TEMPLATE,
 	DEFAULT_TOP_LEVEL,
 	HeadingCounter,
+	WORD_JOINER,
 	buildPrefix,
 	numberHeadings,
 	previewLevel,
@@ -101,6 +102,35 @@ describe("renderNumeral", () => {
 		expect(renderNumeral("lower-alpha", 28)).toBe("ab");
 		expect(renderNumeral("upper-alpha", 1)).toBe("A");
 		expect(renderNumeral("upper-alpha", 52)).toBe("AZ");
+	});
+
+	it("G8：渲染小写罗马数字（减法规则）", () => {
+		expect(renderNumeral("lower-roman", 1)).toBe("i");
+		expect(renderNumeral("lower-roman", 4)).toBe("iv");
+		expect(renderNumeral("lower-roman", 5)).toBe("v");
+		expect(renderNumeral("lower-roman", 9)).toBe("ix");
+		expect(renderNumeral("lower-roman", 10)).toBe("x");
+		expect(renderNumeral("lower-roman", 14)).toBe("xiv");
+		expect(renderNumeral("lower-roman", 40)).toBe("xl");
+		expect(renderNumeral("lower-roman", 44)).toBe("xliv");
+		expect(renderNumeral("lower-roman", 50)).toBe("l");
+		expect(renderNumeral("lower-roman", 90)).toBe("xc");
+		expect(renderNumeral("lower-roman", 100)).toBe("c");
+		expect(renderNumeral("lower-roman", 399)).toBe("cccxcix");
+		expect(renderNumeral("lower-roman", 400)).toBe("cd");
+		expect(renderNumeral("lower-roman", 500)).toBe("d");
+		expect(renderNumeral("lower-roman", 900)).toBe("cm");
+		expect(renderNumeral("lower-roman", 1000)).toBe("m");
+		expect(renderNumeral("lower-roman", 1994)).toBe("mcmxciv");
+		expect(renderNumeral("lower-roman", 2024)).toBe("mmxxiv");
+	});
+
+	it("G9：渲染大写罗马数字", () => {
+		expect(renderNumeral("upper-roman", 1)).toBe("I");
+		expect(renderNumeral("upper-roman", 4)).toBe("IV");
+		expect(renderNumeral("upper-roman", 14)).toBe("XIV");
+		expect(renderNumeral("upper-roman", 1994)).toBe("MCMXCIV");
+		expect(renderNumeral("upper-roman", 2024)).toBe("MMXXIV");
 	});
 });
 
@@ -839,6 +869,18 @@ describe("2024 折中：只剥一层，序号后的用户数字被保留（testp
 	it("stripPrefix 直接断言：H2 只剥最左一段数字前缀", () => {
 		expect(stripPrefix("1 2024 总结", 2, DEFAULT_TEMPLATE)).toBe("2024 总结");
 		expect(stripPrefix("2024 总结", 2, DEFAULT_TEMPLATE)).toBe("总结");
+	});
+
+	it("E13：Word Joiner 快速路径——含 WJ 标记时精确定界，标记前全部视为前缀", () => {
+		// WJ（U+2060）是插件写出前缀结束标记的预留接口，导出/复制时不可见。
+		// 含 WJ 时，stripPrefix 直接截断到标记后，跳过正则匹配。
+		expect(stripPrefix(`1${WORD_JOINER}2024 总结`, 2, DEFAULT_TEMPLATE)).toBe("2024 总结");
+		// WJ 后即使是纯数字也完整保留（不被当作序号剥掉）。
+		expect(stripPrefix(`3.2${WORD_JOINER}2024 特殊节`, 2, DEFAULT_TEMPLATE)).toBe(
+			"2024 特殊节",
+		);
+		// 无 WJ 时正常走正则路径（不影响原有行为）。
+		expect(stripPrefix("1 普通标题", 2, DEFAULT_TEMPLATE)).toBe("普通标题");
 	});
 });
 

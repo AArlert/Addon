@@ -31,6 +31,43 @@
 
 ---
 
+## 2026-06-29 0.6.3 罗马数字样式 + 修复 U1/U2 + Word Joiner 验证（claude/obsidian-auto-headings-0.6.3-xdeojz）
+
+### 做了什么
+
+- **`src/numbering.ts` 核心引擎**：
+  - **罗马数字样式**（G8/G9，论文用户）：`NumeralStyle` 新增 `"lower-roman" | "upper-roman"`；实现 `ROMAN_MAP` + `toRoman()` 函数（标准减法规则，1→i/I…1994→mcmxciv/MCMXCIV）；`renderNumeral` 扩展两个 `case`；`numeralTokenPattern` 扩展 `[ivxlcdm]+` / `[IVXLCDM]+`；`ALL_NUMERAL_STYLES` 加入两款；`lastSegmentToken` 同字母样式一样**条件纳入**（仅模板在用时才参与剥离，避免 `CDI module` 等词被误剥）。
+  - **Word Joiner 验证（U+2060）**：导出 `WORD_JOINER = "⁠"` 常量；在 `stripPrefix` 与 `stripPrefixBroad` 开头加 WJ 快速路径（精确截断到标记后）——当前写出路径尚未插入 WJ（不改 `buildPrefix`/`numberHeadings` 输出），快速路径是前向兼容预留，已验证概念正确性（E13）。
+  - **修复 U1/C6（高优先级）**：`numberHeadings` 对 `level < top` 的分支改为**循环调用 `stripPrefix` 到不变点**（原：单次 `stripHeadingPrefix`）。首次触发一次性剥净所有可识别层（`1 2024 总结` → 循环剥成 `总结`），之后幂等；裸标题无数字前缀循环立即停止（C1/E5 不受影响）。
+  - **修复 U2/B10（中优先级）**：引入 `tolerantInnerSeparator(numberSep, charClass, titleSep)` 函数；当 `titleSep` 字符落在 `NUMBER_SEPARATOR_CLASS` 里时，为容差分支加否定前瞻 `(?!titleSep)`，阻止 `。`/`、` 等标题间隔符被当作段间分隔符消费；`stripPrefix` 对内层分隔符改用此函数。`titleSep=space` 时退化为原逻辑（空格本就不在 `NUMBER_SEPARATOR_CLASS`）。
+- **`src/settings/SettingsTab.ts`**：`NUMERAL_OPTIONS` 新增 `"lower-roman"` / `"upper-roman"` 两个下拉选项。
+- **测试**：
+  - `tests/dev_tests/known_bugs.test.ts`：U1/U2 断言从「错误特征化」改为「修复后正确」回归测试；U3 保留特征化。
+  - `tests/dev_tests/numbering.test.ts`：新增 G8（小写罗马 17 值）、G9（大写罗马 5 值）、E13（WJ 快速路径 3 个断言）；导入 `WORD_JOINER`。
+  - `tests/dev_tests/uvm/framework.ts`：`NUMERALS_WITH_ALPHA` 加入 `"lower-roman"` / `"upper-roman"`（explore 模式）。
+- **文档**：
+  - `testplan.md`：B10→✅（修复）、C6→✅（修复）、G8/G9（新增 ✅）、E13（新增 ✅）；§3.2 U1/U2→✅、修复说明；约束表注释同步；UVM 底部注加 0.6.3 结果。
+  - `doc/log.md`（本文件）：本条。
+  - `doc/status.jsonl`：插入 0.6.3 概括行，更新首行。
+- 版本号 0.6.2→**0.6.3**（package.json / manifest.json / versions.json / package-lock.json）。
+- `npm run release`：release/ 已更新（main.js / manifest.json / styles.css / zip）。
+
+### 没做什么
+
+- **U3 未修**（字母/罗马样式吞英文词起头标题，如 `## API 设计`→`## A 设计`）：属 L1 同源取舍，特征化钉住。
+- 罗马数字的 `numeralTokenPattern` 用宽字符类 `[ivxlcdm]+`（同字母样式），不做严格正则校验——条件纳入已保证误伤面可控，严格罗马正则过于复杂且超出需求。
+- Word Joiner 未写入 `buildPrefix`/`numberHeadings` 输出——会导致约 50–100 个断言级联更新 + UVM 参考模型偏差（E5b 场景两侧行为分叉），代价过大；快速路径已验证概念，日后写出路径就绪时直接可用。
+- explore 模式的 UVM 默认约束（脏标题维度）未放开——U1/U2 已修，但 explore 脏标题还会撞 U3（字母自食），且 UVM 参考模型对循环剥离的幂等性与 tolerantInnerSeparator 的混合场景未建完整参考，留后续再放开。
+
+### 下一步
+
+- 手验：在真实 Obsidian Vault 里试罗马数字样式（选 `小写罗马`，设 H2=lower-roman，看 `i`/`ii`/`iii` 渲染）。
+- 手验：把 topLevel 调高（如 H2→H3），含 `1 2024 总结` 的 H2 标题，触发后确认一次到定点 `总结`，再触发不变。
+- 手验 U2 修复：把某级 titleSeparator 改为 `。`，标题含 `1。2024 总结`，触发后应保留 `1。2024 总结`。
+- 可考虑的后续：放开 explore 模式脏标题约束并建立对应的幂等性参考——需给 UVM 参考模型加循环剥离逻辑（或改用幂等性记分板兜）；处理 U3（罗马样式也有同款问题）。
+
+---
+
 ## 2026-06-29 0.6.2 UVM 框架升级 + 撞出 3 个新 bug（claude/obsidian-uvm-test-coverage-czbyd6）
 
 ### 做了什么
