@@ -31,6 +31,39 @@
 
 ---
 
+## 2026-06-29 0.6.1 frontmatter 布尔化（claude/obsidian-auto-headings-m6-ik65hm）
+
+### 做了什么
+
+- **`src/frontmatter.ts`** — `FileSwitch` 类型从 `"ON" | "OFF" | null` 改为 `boolean | null`；`readFileSwitch` 现识别 YAML 布尔 `true`/`false`（含带引号的 `"true"`/`"false"`）；旧版 `ON`/`OFF` 文本视为非法值（返回 null）。导出 `SWITCH_KEY` 常量供 main.ts 引用。
+- **`src/main.ts`** — `onload()` 在加载时通过内部 API `app.metadataTypeManager.setPropertyInfo` 将 `obsidian-auto-headings` 注册为 checkbox 属性类型（Obsidian 1.4.0+ 内部 API，防御性调用，无此方法时无操作）；`shouldAutoTrigger` 的比较值从 `"OFF"`/`"ON"` 改为 `false`/`true`；所有注释同步更新。
+- **`tests/dev_tests/frontmatter.test.ts`** — 全面改写：测试值改为 `true`/`false`，旧版 `ON`/`OFF` 案例改为验证非法（返回 null）。
+- **`tests/dev_tests/main.test.ts`** — 3 处测试里的 `ON`/`OFF` 改为 `true`/`false`。
+- **`doc/spec.md`、`doc/testplan.md`、`README.md`、`release/README.md`** — 所有用法示例/矩阵/描述同步更新。
+- 版本号 0.6.0 → **0.6.1**（package.json / manifest.json / versions.json / package-lock.json）。
+- `npm run release`：release/ 已更新（main.js / manifest.json / styles.css / zip）。
+
+### 没做什么 / 已知限制
+
+- **无向后兼容**：已有文件里写了 `obsidian-auto-headings: ON` 或 `OFF` 的，升级后将失效（视为非法值，跟随全局开关）。需手动改为 `true`/`false` 或在 Obsidian 属性面板重新勾选。
+- `metadataTypeManager` 是 Obsidian 未公开 API，在旧版 Obsidian（< 1.4.0）或 API 签名变化时将静默无操作（不影响功能，仅属性面板不显示勾选框形态）。
+
+### 下一步
+
+- 手验：在 Obsidian 属性面板确认 `obsidian-auto-headings` 显示为复选框类型；勾选/取消后验证自动触发行为符合预期。
+- 手验旧版迁移：含 `ON`/`OFF` 的笔记升级后确实跟随全局开关（非法值静默忽略）。
+
+### 验证方式
+
+```
+cd obsidian-auto-headings
+npm test              # 191 passed
+npm run lint          # 无报错
+npm run format:check  # 格式全绿
+```
+
+---
+
 ## 2026-06-29 M6 落地（claude/obsidian-auto-headings-m6-ik65hm）
 
 ### 做了什么

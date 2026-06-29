@@ -13,7 +13,7 @@ import {
 	defaultPathRules,
 } from "./settings";
 import { AutoHeadingsSettingTab } from "./settings/SettingsTab";
-import { readFileSwitch } from "./frontmatter";
+import { readFileSwitch, SWITCH_KEY } from "./frontmatter";
 import { renumberContent, type Template } from "./numbering";
 import { clearNumberingContent } from "./cleanup";
 import { parseHeadings, type Heading } from "./parser";
@@ -36,8 +36,8 @@ import { TemplateStore } from "./templates/TemplateStore";
  * - 路径规则解析 {@link getTemplateForFile}：按 `settings.pathRules` 为每个文件挑选模板，
  *   无命中则无可用模板（自动静默跳过 / 手动弹 Notice）。
  * - 「是否运行」两层化：`autoNumber`（全局自动编号面板开关）与文件级 frontmatter 强制。
- * - **自动触发**：`autoNumber` 开 或 `fm:ON`，且 `fm≠OFF`（见 {@link shouldAutoTrigger}）。
- * - **手动命令**：绕过全局开关与 `fm:OFF`，仅受「能否命中模板」约束。
+ * - **自动触发**：`autoNumber` 开 或 `fm:true`，且 `fm≠false`（见 {@link shouldAutoTrigger}）。
+ * - **手动命令**：绕过全局开关与 `fm:false`，仅受「能否命中模板」约束。
  */
 export default class AutoHeadingsPlugin extends Plugin {
 	settings: AutoHeadingsSettings = { ...DEFAULT_SETTINGS, pathRules: defaultPathRules() };
@@ -52,6 +52,13 @@ export default class AutoHeadingsPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
+
+		// 向 Obsidian 注册 frontmatter 属性为复选框类型（内部 API，1.4.0+）。
+		// 注册后用户在属性面板看到勾选框，写入 true/false 而非文本。
+		const mtm = (this.app as any).metadataTypeManager; // eslint-disable-line @typescript-eslint/no-explicit-any
+		if (typeof mtm?.setPropertyInfo === "function") {
+			mtm.setPropertyInfo(SWITCH_KEY, { type: "checkbox" });
+		}
 
 		// 初始化模板存储：确保 templates/ 目录与 default.json 存在并载入全部模板。
 		const pluginDir =
@@ -72,7 +79,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 			},
 		});
 
-		// 立即重新编号：绕过防抖、绕过全局开关与 frontmatter OFF（手动命令路径，见 spec.md §3.1）。
+		// 立即重新编号：绕过防抖、绕过全局开关与 frontmatter false（手动命令路径，见 spec.md §3.1）。
 		this.addCommand({
 			id: "renumber-now",
 			name: "立即重新编号（当前文件）",
@@ -137,8 +144,8 @@ export default class AutoHeadingsPlugin extends Plugin {
 
 	/**
 	 * **自动触发**是否应进行（见 spec.md §3.1 自动路径）。判定顺序：
-	 * - frontmatter `OFF` → 不触发（即便全局开关开）。
-	 * - frontmatter `ON` → 触发（文件级强制 opt-in，即便全局开关关）。
+	 * - frontmatter `false` → 不触发（即便全局开关开）。
+	 * - frontmatter `true` → 触发（文件级强制 opt-in，即便全局开关关）。
 	 * - 缺省 / 非法值 → 跟随「全局自动编号」开关。
 	 *
 	 * 注意：本判定仅决定「是否够格自动触发」，是否真正写入还取决于能否命中模板（见
@@ -146,10 +153,10 @@ export default class AutoHeadingsPlugin extends Plugin {
 	 */
 	private shouldAutoTrigger(content: string): boolean {
 		const sw = readFileSwitch(content);
-		if (sw === "OFF") {
+		if (sw === false) {
 			return false;
 		}
-		if (sw === "ON") {
+		if (sw === true) {
 			return true;
 		}
 		return this.settings.autoNumber;
@@ -219,7 +226,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 	 * 在设置面板修改模板后，立即对**当前活动 Markdown 文件**重新编号，使格式调整即时可见。
 	 *
 	 * 走与自动触发一致的判定（{@link shouldAutoTrigger} + 按路径解析模板）：全局开关关、
-	 * frontmatter `OFF`、或无可用模板时静默跳过；无活动编辑器时不动作。
+	 * frontmatter `false`、或无可用模板时静默跳过；无活动编辑器时不动作。
 	 */
 	renumberActiveFile(): void {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -341,7 +348,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 		if (!file) {
 			return;
 		}
-		// 不够格自动触发（全局开关关且非 fm:ON，或 fm:OFF）时不安排任何更新。
+		// 不够格自动触发（全局开关关且非 fm:true，或 fm:false）时不安排任何更新。
 		if (!this.shouldAutoTrigger(editor.getValue())) {
 			return;
 		}
@@ -370,7 +377,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 
 	/**
 	 * 「立即重新编号」命令（**手动路径**，见 spec.md §3.1）：绕过防抖、绕过「全局自动编号」开关
-	 * 与 frontmatter `OFF`，仅受「能否命中模板」约束；命中不到模板时弹 Notice 反馈。
+	 * 与 frontmatter `false`，仅受「能否命中模板」约束；命中不到模板时弹 Notice 反馈。
 	 */
 	private runImmediateRenumber(editor: Editor, ctx: MarkdownView | MarkdownFileInfo): void {
 		// 若有待处理的实时更新，先取消，避免随后重复触发。

@@ -208,17 +208,17 @@
 ### I. frontmatter / 双层开关 — dev + user
 
 > I1/I2/I4/I5 自 0.3.18 由 Layer 2 集成测试（`main.test.ts`）+ `frontmatter.test.ts` 覆盖；I3/I6/I7
-> 依赖 **M5**（frontmatter `ON` 强制 opt-in、手动命令绕过、路径规则系统），于 **0.5.0** 落地并由
-> `main.test.ts` 覆盖。
+> 依赖 **M5**（frontmatter `true` 强制 opt-in、手动命令绕过、路径规则系统），于 **0.5.0** 落地并由
+> `main.test.ts` 覆盖。0.6.1 起属性值改为布尔复选框（`true`/`false`），测试同步更新。
 
 | ID | 操作 | 预期 | 状态 |
 |----|------|------|------|
 | I1 | 全局自动编号=开 + 无 fm | 自动触发 | ✅（0.3.18 `main.test.ts`）|
-| I2 | 全局=开 + `fm: OFF` | 不自动触发；已有编号冻结（不清除） | ✅（0.3.18 `main.test.ts`）|
-| I3 | 全局=关 + `fm: ON` | **仍**自动触发（文件级强制 opt-in） | ✅（0.5.0 `main.test.ts`）|
-| I4 | 全局=关 + 无 fm/`fm: OFF` | 不触发 | ✅（0.3.18 `main.test.ts`）|
-| I5 | fm 非法值 `on`/`Off`/`yes`（大小写敏感） | 忽略该键，按缺省（跟随全局） | ✅（`frontmatter.test.ts` 解析 + I1 跟随全局）|
-| I6 | 「立即重新编号」遇 `fm: OFF` 或全局=关 | **照常编号**（手动命令绕过开关与 OFF） | ✅（0.5.0 `main.test.ts`）|
+| I2 | 全局=开 + `fm: false` | 不自动触发；已有编号冻结（不清除） | ✅（0.6.1 `main.test.ts`）|
+| I3 | 全局=关 + `fm: true` | **仍**自动触发（文件级强制 opt-in） | ✅（0.6.1 `main.test.ts`）|
+| I4 | 全局=关 + 无 fm/`fm: false` | 不触发 | ✅（0.3.18 `main.test.ts`）|
+| I5 | fm 非法值（旧版 `ON`/`OFF` 文本、`True`/`False` 大小写不对） | 忽略该键，按缺省（跟随全局） | ✅（0.6.1 `frontmatter.test.ts`）|
+| I6 | 「立即重新编号」遇 `fm: false` 或全局=关 | **照常编号**（手动命令绕过开关与 false） | ✅（0.6.1 `main.test.ts`）|
 | I7 | 无任何路径规则命中：自动触发 / 手动命令 | 自动静默跳过 / 手动弹 Notice | ✅（0.5.0 `main.test.ts`）|
 
 ### K. 路径规则解析（M5） — dev + user

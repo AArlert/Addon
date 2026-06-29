@@ -49,11 +49,13 @@
 | 立即重新编号（当前文件） | 绕过防抖与全局关、立即触发一次 |
 | **清除当前文件编号** | 剥除当前文件所有编号前缀，还原裸标题，可撤销 |
 
-**单文件开关**（frontmatter）
+**单文件开关**（frontmatter 复选框属性）
+
+在 Obsidian 属性面板勾选 / 取消 `obsidian-auto-headings`，或手动写入：
 
 ```yaml
 ---
-obsidian-auto-headings: ON   # 强制开（覆盖全局关）
-# obsidian-auto-headings: OFF  # 强制关（立即重新编号命令仍可手动触发）
+obsidian-auto-headings: true   # 勾选 → 强制开（覆盖全局关）
+# obsidian-auto-headings: false  # 取消勾选 → 强制关（立即重新编号命令仍可手动触发）
 ---
 ```
