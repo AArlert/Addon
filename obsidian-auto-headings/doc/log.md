@@ -98,6 +98,55 @@ obsidian-auto-headings/
 
 ---
 
+## 2026-06-29 — 升版 0.3.19：Layer 2 集成测试（main.ts 触发层 / 防抖 / 单事务 / 开关门控）
+
+**交接人：** 分支 `claude/obsidian-auto-headings-next-sr4w3p`
+
+**做了什么：**
+
+- **新建 obsidian 模块替身 + vitest 别名**，使 `main.ts` 能在无 Obsidian 运行时下被加载测试：
+  - `tests/dev_tests/obsidian-mock.ts`：极简替身，仅提供源码**作为值**用到的 `Plugin` / `PluginSettingTab`
+    / `Setting` / `Notice`（记录消息供断言）/ `MarkdownView` / `normalizePath`（类型用途的导入编译时擦除）。
+  - `vitest.config.ts` 加 `resolve.alias`：把所有 `import … from "obsidian"` 重定向到该替身。真实构建
+    （esbuild）仍把 obsidian 标记 external，互不影响。
+- **新建 Layer 2 集成测试 `tests/dev_tests/main.test.ts`（17 例）**：用「假编辑器」（记 `transaction`
+  次数 + 应用整行替换）+ vitest 假定时器（`globalThis.window = globalThis` 提供 `window.setTimeout`）
+  驱动 `AutoHeadingsPlugin` 的私有触发方法，覆盖 testplan：
+  - **J1** 防抖合并（延迟内多次调度只编号一次）、**J3** 多文件路径独立、**J2** `onunload` 取消待处理、
+    **J4** 多行改动合并为**一次事务**、**J5** `renumberActiveFile`（改模板后即时重排，默认→中文不叠加）。
+  - **J7**（新增场景）「立即重新编号」绕过防抖 + 取消同文件待处理 + 遵守全局开关（弹 Notice）。
+  - **I1/I2/I4** 开关门控：全局开关关不调度、到期前关开关则回调再校验跳过、frontmatter `OFF` 跳过。
+  - **方案 A 接线**：`strippableAffixes()` 收集全模板前后缀并集（恒含空串），经 `applyRenumber` 生效——
+    当前模板无前缀但别的模板用「第」时，旧 `第1 ` 前缀仍被剥净。
+- **回填 testplan**：J1–J5 + 新 J7 → ✅；I1/I2/I4/I5 → ✅（I5 由 frontmatter.test + I1 跟随全局覆盖）；
+  J 类 / I 类各加一段说明指向 `main.test.ts`。dev **共 138 passed**（新增 17）。
+- 升版 0.3.18 → **0.3.19**，重生 `release/`。
+
+**没做什么（明确边界）：**
+
+- **J6（光标/选区不被打乱）仍 🔲**：假编辑器不建模光标与选区，属真实环境手验项，留 testplan 手验。
+- **I3 / I6 / I7 仍 🔲（M5）**：frontmatter `ON` 强制覆盖全局关、手动命令绕过开关与 OFF、按路径规则
+  选模板/无命中处理——这些 M5 语义尚未在 main.ts 实现。`main.test.ts` 里断言的是**当前 M3 行为**
+  （如「立即重新编号」目前**遵守**开关与 OFF，与 M5 目标相反），实现 M5 时需改这些测试。
+- 未碰编号引擎 `src/numbering.ts`（本轮纯测试基建 + 文档）。
+
+**下一步（给接手 Agent 的明确起点）：**
+
+1. **M4 白名单**（引擎已有 `isWhitelisted` 回调，差 GUI + 匹配归一化，testplan D 类）——是 M3 之后
+   最自然的下一块功能。
+2. 或 **M5 双层开关 + 路径系统**：实现 frontmatter `ON` 覆盖、手动命令绕过、路径规则选模板（testplan
+   I3/I6/I7、spec §3.1/§3.2/§3.8），届时把 `main.test.ts` 里 I6 等「当前 M3 行为」断言改成 M5 目标。
+3. 或评估方案 B（状态化剥离）以彻底解 C3 +「2024 首次也保留」（见 0.3.18 块）。
+
+**验证方式：**
+
+- `npm test`（138 passed，含 `main.test.ts` 17 例与 400 条随机序列）/ `npm run lint` / `npm run
+  format:check` 全绿；`npm run build`（tsc）通过；`npm run release` 重生 `release/`（manifest 0.3.19）。
+- 复现 Layer 2：`main.test.ts` 经 `obsidian` 别名加载真实插件；假定时器 `vi.advanceTimersByTime(300)`
+  触发防抖回调；`FakeEditor.txnCount` 断言「单一事务」。
+
+---
+
 ## 2026-06-29 — 升版 0.3.18：修 B2/B3/B9（方案 A）+「2024 折中」只剥一层（M3 打磨）
 
 **交接人：** 分支 `claude/obsidian-auto-headings-next-sr4w3p`
