@@ -502,7 +502,7 @@ function escapeRegExp(s: string): string {
 }
 
 /**
- * 「容差分隔符」字符类：常见的序号 / 标题分隔标点与空白（空格、Tab、`.`、`、`、`-`、`)` 等）。
+ * 「标题间隔符」的容差字符类：常见分隔标点 **+ 空白**（空格、Tab、`.`、`、`、`-`、`)` 等）。
  *
  * 用途（见 doc/testplan.md B1/B4/B5）：用户改了模板的「序号间隔符」或「标题间隔符」后，文件里用
  * **旧分隔符**写出的历史前缀已无法用当前模板值精确匹配（旧值不在模板里了）。{@link stripPrefix}
@@ -514,14 +514,47 @@ function escapeRegExp(s: string): string {
  * 标题完全不受影响**，误伤面与历史一致（仅「以序号 + 分隔符起头」的标题会被当前缀覆盖，这与
  * spec.md §2.3「对编号前缀的手动编辑属预期行为」一致）。
  */
-const SEPARATOR_CLASS = "[ \\t.,;:、，。．·：；)）】」』>\\]-]";
+const TITLE_SEPARATOR_CLASS = "[ \\t.,;:、，。．·：；)）】」』>\\]-]";
+
+/**
+ * 「序号间隔符」（父子序号段之间，如 `1.1` 的 `.`）的容差字符类：在 {@link TITLE_SEPARATOR_CLASS}
+ * 基础上**刻意排除空格 / Tab**。
+ *
+ * 为什么排除空格（见 doc/testplan.md「2024 折中」）：空格几乎总是「序号→标题」的**标题间隔符**，
+ * 而非段间的序号间隔符。若容差地把空格也当段间分隔符，`1 2024 标题` 会被解析成「`1`、`2024` 两段
+ * 父级序号」而把用户正文里的 `2024` 一并吃掉。把空格从段间容差里剔除后，`1 2024 标题` 只会被识别为
+ * 「一层前缀 `1 ` + 正文 `2024 标题`」，从而**只剥一层、保住用户写在序号后面的数字**。
+ * 真正以空格为序号间隔符的罕见配置仍由 {@link tolerantSeparator} 的「精确匹配当前值」分支兜住。
+ */
+const NUMBER_SEPARATOR_CLASS = "[.,;:、，。．·：；)）】」』>\\]-]";
 
 /**
  * 构造「容差分隔符」匹配片段：优先精确匹配当前模板的分隔符 `exact`（含其为空的情形），
- * 否则容差匹配一段 {@link SEPARATOR_CLASS}（≥1 个）。用于剥离用旧分隔符写出的历史前缀。
+ * 否则容差匹配一段给定字符类 `charClass`（≥1 个）。用于剥离用旧分隔符写出的历史前缀。
+ *
+ * @param charClass 容差字符类——序号间隔符传 {@link NUMBER_SEPARATOR_CLASS}（无空格）、
+ *   标题间隔符传 {@link TITLE_SEPARATOR_CLASS}（含空格）。
  */
-function tolerantSeparator(exact: string): string {
-	return `(?:${escapeRegExp(exact)}|${SEPARATOR_CLASS}+)`;
+function tolerantSeparator(exact: string, charClass: string): string {
+	return `(?:${escapeRegExp(exact)}|${charClass}+)`;
+}
+
+/**
+ * 把一组前缀 / 后缀字面量拼成「能匹配其中任一者」的正则片段（按长度降序，使较长字面量优先匹配）。
+ *
+ * 方案 A（见 doc/testplan.md B2/B3）：剥离前后缀时不死扣当前模板值，而是接受一个**候选集合**——
+ * 至少含「当前级别值」与「空串」，并可由 {@link NumberOptions.strippablePrefixes} /
+ * {@link NumberOptions.strippableSuffixes} 注入「全模板在用的前后缀并集」。于是：
+ * - **空串恒在候选里** → 之前在「无前缀」时编的号（如 `1 标题`），即便现在模板已配了前缀（`第`），
+ *   也能被识别剥掉，再叠正确的新前缀，不会得到 `第1 1 标题`（B2/B3 的「空→非空」方向）。
+ * - **并集含旧值** → 把某模板前缀从 `第` 改成别的、而别处仍在用 `第` 时，旧 `第…` 前缀也能剥净
+ *   （「非空→另一值」方向，靠 main.ts 传入并集覆盖）。
+ *
+ * 误伤面被限定在「用户实际配过的字面量集合」内，可控且可测（不像任意容差那样吞掉真实标题）。
+ */
+function affixAlternation(values: readonly string[]): string {
+	const uniq = Array.from(new Set(values)).sort((a, b) => b.length - a.length);
+	return `(?:${uniq.map(escapeRegExp).join("|")})`;
 }
 
 /** 某序号样式可能出现的字符类片段，用于剥离已有前缀。 */
@@ -621,13 +654,22 @@ function lastSegmentToken(template: Template, skipFill: SkipFill): string {
  * 旧的 `1.二.1` 仍能被识别剥离，不会被当成正文而在其左侧再叠一层新前缀（即用户报告的
  * 「1.2.1 1.二.1」叠加 bug 的根因）。
  *
- * 为应对历史上已叠加多层的脏数据，这里**循环剥离**直至不再变化（每轮至少吃掉一段，不会死循环）。
+ * **只剥一层**（不再循环重剥）：本函数只移除**最左侧的一个完整前缀单元**，其后的内容一律视为正文
+ * 保留。这实现了用户约定的「2024 折中」——`1 2024 标题`（用户在插件写的 `1 ` 后面又补回自己的
+ * `2024`）只会被剥成 `2024 标题` 再编号回 `1 2024 标题`，而**不会**把 `2024` 也当成第二段序号吃掉。
+ * 配合 {@link NUMBER_SEPARATOR_CLASS} 把空格排除出「段间分隔符」，`1 2024` 不再被误解析为两段序号。
+ * 多段前缀（如 `1.1.1 `，段间是 `.`）仍会作为**一个单元**被一次剥净。
  *
- * 已知歧义：当标题本身恰以「序号样式字符 + 标题间隔符」开头（如默认模板下的「2024 年度总结」，
- * 或模板用到字母样式时以英文单词 + 空格开头的标题）时，会被误判为前缀而剥离——这与 README
- * 「对前缀的手动编辑属预期行为、会被覆盖」的设计一致。
+ * 已知歧义（与 spec §2.3 一致，属预期取舍）：当标题本身恰以「序号样式字符 + 标题间隔符」开头
+ * （如 `2024 总结`、`三 概述`）时，**首次**编号会把它当作前缀剥掉（得 `1 总结`）。用户若想保留，
+ * 在序号后重新写上即可——`1 2024 总结` 会被稳定保留（见上「只剥一层」）。
  */
-export function stripPrefix(text: string, level: number, template: Template): string {
+export function stripPrefix(
+	text: string,
+	level: number,
+	template: Template,
+	options: Pick<NumberOptions, "strippablePrefixes" | "strippableSuffixes"> = {},
+): string {
 	const fmt = getLevelFormat(template, level);
 	if (!fmt) {
 		return text;
@@ -638,28 +680,24 @@ export function stripPrefix(text: string, level: number, template: Template): st
 	const last = lastSegmentToken(template, skipFill);
 	// 序号间隔符与标题间隔符均用「容差」匹配：除当前模板值外，也认得用旧分隔符写出的历史前缀，
 	// 从而在用户改了间隔符后仍能剥净旧前缀、不叠加（见 {@link tolerantSeparator}、testplan B1/B4/B5）。
-	const sep = tolerantSeparator(fmt.numberSeparator);
-	const titleSep = tolerantSeparator(fmt.titleSeparator);
-	// 与 buildPrefix 的结构对应：继承前级时前缀形如 `父段{sep}…{sep}父段{sep}本段`，父级段数随层级与
-	// 跳级而变；父段用宽 token（含历史样式），本段用收口 token（字母样式仅在模板在用时纳入）。
-	const numberPattern = fmt.inherit ? `(?:${inner}${sep})*${last}` : last;
+	// 注意两者用**不同**字符类：段间序号间隔符排除空格（避免把 `1 2024` 当两段序号），标题间隔符含空格。
+	const sep = tolerantSeparator(fmt.numberSeparator, NUMBER_SEPARATOR_CLASS);
+	const titleSep = tolerantSeparator(fmt.titleSeparator, TITLE_SEPARATOR_CLASS);
+	// 与 buildPrefix 的结构对应：继承前级时前缀形如 `父段{sep}…{sep}父段{sep}本段`。
+	// **父级段恒用可选 `(?:…)*` 匹配，不看当前 `inherit`**：历史前缀可能是在 `inherit=true` 时写的
+	// （带父级段），即便现在改成了 `inherit=false`，那些父级段也必须能被一并剥净，否则会残留叠加
+	// （`inherit` 翻转的状态转移）。`*` 取零段即覆盖「本就没有父级段」的 inherit=false 情形。
+	const numberPattern = `(?:${inner}${sep})*${last}`;
 
 	// 与 buildPrefix 对应：前缀 + 完整序号 + 后缀 + 标题间隔符。后缀（如「章」）须一并剥离。
-	// 前缀（prefix）与后缀（suffix）仍按当前值精确匹配——它们是用户自填的任意文本，容差匹配会大幅
-	// 放大对真实标题的误伤（见 testplan：B2/B3「改前缀/后缀」是另一类，需更谨慎的方案，暂未纳入）。
-	const pattern = new RegExp(
-		`^${escapeRegExp(fmt.prefix)}${numberPattern}${escapeRegExp(fmt.suffix)}${titleSep}`,
-	);
+	// 方案 A：前缀 / 后缀用「当前值 + 空串 + 注入并集」的候选集合匹配（见 {@link affixAlternation}），
+	// 而非死扣当前值——这样「无前缀时编的号」与「旧前缀值」都能被识别剥净（testplan B2/B3）。
+	const prefixAlt = affixAlternation([fmt.prefix, "", ...(options.strippablePrefixes ?? [])]);
+	const suffixAlt = affixAlternation([fmt.suffix, "", ...(options.strippableSuffixes ?? [])]);
+	const pattern = new RegExp(`^${prefixAlt}${numberPattern}${suffixAlt}${titleSep}`);
 
-	// 循环剥离，清掉历史上叠加的多层前缀；每轮命中至少移除一个字符，故必然收敛。
-	let out = text;
-	for (;;) {
-		const next = out.replace(pattern, "");
-		if (next === out) {
-			return out;
-		}
-		out = next;
-	}
+	// 只剥一层：移除最左侧的一个完整前缀单元即返回，其后内容一律视为正文保留（见上「2024 折中」）。
+	return text.replace(pattern, "");
 }
 
 /**
@@ -671,8 +709,13 @@ export function stripPrefix(text: string, level: number, template: Template): st
  * 这类「本身是序号字样、末尾无空格」的真实标题则因缺少间隔符不被误剥。剥离后再 trim 掉
  * 可能残留的行尾空白，与解析器对 {@link Heading.text} 的处理保持一致。
  */
-function stripHeadingPrefix(heading: Heading, level: number, template: Template): string {
-	return stripPrefix(heading.rawText, level, template).replace(/\s+$/, "");
+function stripHeadingPrefix(
+	heading: Heading,
+	level: number,
+	template: Template,
+	options: Pick<NumberOptions, "strippablePrefixes" | "strippableSuffixes"> = {},
+): string {
+	return stripPrefix(heading.rawText, level, template, options).replace(/\s+$/, "");
 }
 
 /** 重新编号后的单个标题。 */
@@ -697,6 +740,15 @@ export interface NumberOptions {
 	 * 通过该回调注入，以便单元测试验证「不占槽位」的计数行为。默认无白名单。
 	 */
 	isWhitelisted?: (heading: Heading) => boolean;
+	/**
+	 * 剥离时**额外**纳入的「前缀」候选字面量集合（方案 A，见 {@link affixAlternation}）。
+	 * 典型用法：main.ts 传入「所有模板各级在用的 prefix 并集」，使某模板把前缀从 `第` 改走、
+	 * 或在多模板间切换后，旧前缀仍能被剥净。`stripPrefix` 总会自动并入「当前级别值」与「空串」，
+	 * 故此项只需给跨模板 / 历史的额外值；缺省为空。
+	 */
+	strippablePrefixes?: readonly string[];
+	/** 剥离时额外纳入的「后缀」候选字面量集合（语义同 {@link strippablePrefixes}）。 */
+	strippableSuffixes?: readonly string[];
 }
 
 /**
@@ -725,7 +777,7 @@ export function numberHeadings(
 
 		// 白名单命中：完全透明（不计数、不归零），但剥离其已有编号。
 		if (isWhitelisted(heading)) {
-			const text = stripHeadingPrefix(heading, level, template);
+			const text = stripHeadingPrefix(heading, level, template, options);
 			return {
 				level,
 				text,
@@ -749,7 +801,7 @@ export function numberHeadings(
 			};
 		}
 
-		const text = stripHeadingPrefix(heading, level, template);
+		const text = stripHeadingPrefix(heading, level, template, options);
 		const prefix = buildPrefix(template, level, counter);
 		return {
 			level,
