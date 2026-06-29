@@ -82,6 +82,20 @@ export class Setting {
 /** 仅作为 `getActiveViewOfType(MarkdownView)` 的实参标识与 `instanceof` 目标。 */
 export class MarkdownView {}
 
+/**
+ * 对话框基类替身：`SettingsTab.ts` 的 `DeleteTemplateModal extends Modal` 在**模块加载时**即需要
+ * Modal 为可构造的类（即便本测试不实例化对话框）。仅提供构造与开关空方法。
+ */
+export class Modal {
+	app: unknown;
+	contentEl: unknown = {};
+	constructor(app: unknown) {
+		this.app = app;
+	}
+	open(): void {}
+	close(): void {}
+}
+
 /** App 类型在源码里仅用作类型注解；提供一个空类以防个别打包路径未擦除该导入。 */
 export class App {}
 
