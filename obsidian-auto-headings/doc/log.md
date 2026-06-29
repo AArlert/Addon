@@ -98,6 +98,69 @@ obsidian-auto-headings/
 
 ---
 
+## 2026-06-29 — 升版 0.5.0：Milestone 5 按路径配置 + 开关/命令重构
+
+**交接人：** 分支 `claude/obsidian-auto-headings-m5-1o2j87`
+
+**做了什么：**
+
+- **进入 Milestone 5**：版本 `0.4.0` → **`0.5.0`**（M=5，`*` 归零；同步 manifest/package/versions/
+  lockfile/release）。
+- **路径规则系统（纯函数）`src/pathrules.ts`**：`PathRule = {pattern, template}`；
+  - `ruleMatches`：根 `/` 匹配所有；文件夹（以 `/` 结尾）匹配其下全部子项；文件（不以 `/` 结尾）精确匹配。
+  - `ruleSpecificity`：根 `0` ＜ 文件夹（按归一化长度，越深越具体）＜ 文件（加 1e6 基数，恒胜文件夹）。
+  - `resolvePathRule`：取最具体的匹配，**并列时列表靠后者胜出**（`>=` + 正向遍历）；无命中返回 `null`。
+  - `hasRootRule`：判定是否存在 `/` 根规则（供兜底提示条）。归一化容忍反斜杠 / 前导斜杠 / 重复斜杠。
+- **设置数据模型 `src/settings.ts`**：`enabled` → **`autoNumber`**（「全局自动编号」面板层）；新增
+  `pathRules`，默认预置一条 `/`→「默认」。`defaultPathRules()` 每次返回独立数组（避免共享引用）。
+- **frontmatter `src/frontmatter.ts`**：新增 `isForcedOnByFrontmatter`（`ON` → 文件级强制 opt-in）。
+- **触发层重构 `src/main.ts`**（核心）：
+  - **双层开关**：`setAutoNumber` ↔ 全局命令「切换全局自动编号」双向同步。
+  - **`shouldAutoTrigger(content)`**：`fm:OFF`→否；`fm:ON`→是（覆盖全局关）；否则跟随 `autoNumber`。
+  - **`getTemplateForFile(path)`**：按 `pathRules` 解析 → 模板；无命中或模板已失效 → `null`。
+  - **自动路径**（`scheduleRenumber`）：够格才排防抖、到期复核 + 解析模板，无模板**静默跳过**。
+  - **手动路径**（`runImmediateRenumber`）：**绕过** `autoNumber` 与 `fm:OFF`，仅受模板命中约束；
+    命不中弹 Notice「当前文件未匹配任何路径规则，无法编号」。
+  - `applyRenumber(editor, template)` 收窄为纯机械重排（门控移到调用方）；`renumberActiveFile` 走
+    自动判定 + 按活动文件路径解析模板；`renameTemplate` 成功后同步改 `pathRules` 中的引用；
+    `loadSettings` 迁移旧 `enabled`→`autoNumber`、补 `pathRules`。
+- **设置 GUI `src/settings/SettingsTab.ts`**：
+  - 顶部开关改为「全局自动编号」；新增**路径规则区**——可视化表格（拖拽手柄 + 行号 + 路径输入〔接
+    `<datalist>` 真实路径补全〕 + 模板下拉 + 删除）、`+ 添加规则`、**拖拽排序**、`hasRootRule` 兜底
+    缺失提示条 + `+ 添加 / 根规则` 快捷按钮。
+  - 删模板：未被引用直接删；被路径规则引用则弹 **`DeleteTemplateModal`**（列出受影响规则 + 去向下拉：
+    降级「默认」/ 改投他模板 / 连规则一并删）。
+- **测试**：新增 `tests/dev_tests/pathrules.test.ts`（12 例）；重写 `main.test.ts`（23 例）覆盖
+  I1/I2/I3/I4/I6/I7、J1–J5/J7、`getTemplateForFile`、双层开关与手动绕过；`settings.test.ts` 更新为
+  `autoNumber`/`pathRules`；`obsidian-mock.ts` 加 `Modal`（`DeleteTemplateModal` 继承需在加载期可构造）。
+  dev **178 passed**；`npm run test:fuzz`（5000×80）全绿（未碰引擎）；lint/format/build/release 全绿。
+- **C3 评估（用户拍板）**：解决方向定为「**升高 topLevel 时清除后再编号**」——用 M6 的全样式并集剥离器
+  剥掉移出范围标题的旧前缀再重排。因属**显式配置动作**（用户本意即「不再编号这些」），不再有「裸吃正文」
+  顾虑；依赖 cleanup 剥离器，**留 M6 一并实现**（已写入 spec Roadmap M6 与 testplan C3 备注）。
+
+**没做什么（边界）：**
+
+- **GUI 仅手验**：路径规则表（增删/拖拽/补全/兜底提示）、删模板对话框属 DOM 层，沿用既有约定不写 DOM
+  单测；纯解析与接线已被 `pathrules.test.ts` / `main.test.ts` 覆盖（K8/K9/K10 标手验）。
+- **未碰 M6**：清除编号命令 / [清除全库编号] 按钮 / cleanup 全样式剥离器 / C3 实修 / 防抖滑块均未动。
+- **C3 仍 ❌**（方案已定，待 M6 落地）；UVM 未纳入路径规则（路径解析是无状态纯函数，独立于 strip 健壮性）。
+
+**下一步：**
+
+- 推进 **M6**：`cleanup.ts` 全样式并集剥离器（独立于模板）→「清除当前文件编号」命令 + [清除全库编号]
+  按钮（二次确认）；据此**实修 C3**（升高 topLevel → 清除后再编号）；防抖延迟滑块（50–2000ms）；
+  边界情况（E3/E7/E9/E11 等）补测。
+- 可选打磨：路径规则的 user_tests 手验样例；删模板对话框 / 拖拽排序的实测核对。
+
+**验证方式：**
+
+- `cd obsidian-auto-headings && npm test`（178 passed）；`npm run lint`、`npm run format:check` 全绿。
+- `npm run test:fuzz`（5000×80）全绿。
+- `npm run release` 重新生成 `release/`（main.js/manifest.json/styles.css/zip 均 0.5.0）。
+- 手验路径规则：设置面板「路径规则」区加一条文件夹规则指向自定义模板，打开该文件夹下的文件停顿后看是否
+  用该模板编号；删根规则看兜底提示条；关「全局自动编号」后对某文件设 `fm: ON` 看是否仍自动编号；
+  用「立即重新编号」命令对 `fm: OFF` 文件看是否照常编号。
+
 ## 2026-06-29 — 升版 0.4.0：Milestone 4 白名单系统（引擎匹配 + 默认词表 + GUI 编辑器）
 
 **交接人：** 分支 `claude/obsidian-auto-headings-m4-1ylpto`

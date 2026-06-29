@@ -81,3 +81,12 @@ export function readFileSwitch(content: string): FileSwitch {
 export function isDisabledByFrontmatter(content: string): boolean {
 	return readFileSwitch(content) === "OFF";
 }
+
+/**
+ * 判断某文件是否被 frontmatter 明确**强制开启**（文件级强制 opt-in，见 spec.md §3.2）。
+ * 仅当开关值恰为 `ON` 时返回 `true`——此时即便「全局自动编号」为关，该文件仍参与自动编号。
+ * 缺省、`OFF`、非法值均返回 `false`。
+ */
+export function isForcedOnByFrontmatter(content: string): boolean {
+	return readFileSwitch(content) === "ON";
+}
