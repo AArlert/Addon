@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-auto-headings",
-	"version": "0.6.1",
+	"version": "0.6.2",
 	"description": "自动为 Markdown 文件中的标题编号，支持完全自定义的多模板与按路径配置。首版仅提供中文界面。",
 	"main": "main.js",
 	"type": "module",

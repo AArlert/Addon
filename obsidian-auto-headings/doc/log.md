@@ -31,6 +31,39 @@
 
 ---
 
+## 2026-06-29 0.6.2 UVM 框架升级 + 撞出 3 个新 bug（claude/obsidian-uvm-test-coverage-czbyd6）
+
+### 做了什么
+
+- **升级 UVM 框架 `tests/dev_tests/uvm/framework.ts`**（用户诉求：覆盖的用户操作不够全面、步数不够多、发现 bug 能力不够强）：
+  - 抽出 `GenConfig` 生成器配置 + `DEFAULT_GEN`（常绿）/ `EXPLORE_GEN`（找 bug）两套；`runSequence` 新增第四参数 `cfg`。
+  - **新增两类真实激励**：`editTitleInPlace`（在**已带前缀**的标题行里继续改文本、旧前缀仍留行上——模拟「在 md 里怎么打字」，是 strip 最易错处；旧框架只有把整行清空重打的 `retitle`）；`mutatePrefix`（手动删字符/去空格/改数字破坏前缀区——模拟「怎么删」）。
+  - **放开约束**：默认序列步数 40→60；新增 explore 模式放开字母样式 / inherit×非空前后缀 / 脏标题（分隔符·数字·字母起头）/ 手动破坏前缀。
+  - **新增第二记分板 `checkIdempotent`**（`renumber∘renumber===renumber`，恒成立、容脏输入），补旧「裸文档参考模型」是**单次施加等价性**、看不见**多次施加侵蚀**的结构盲区。两记分板互补：默认用参考模型守干净空间，explore 用幂等性在脏空间找 bug。
+- **`tests/dev_tests/random_sequence.test.ts`** — 默认 500×60；新增 `AAH_FUZZ_MODE=explore` 门控的 explore 用例（默认 `it.skip`，会撞 U1/U2/U3，不进 CI）。
+- **用升级后的框架在 20000×80 explore 里撞出 3 个 bug（本轮按用户要求一律不修）**：
+  - **U1（高优先级）**：低于 topLevel 的标题，文本含多层「数字+空格」时被**逐次蚕食**、非幂等（`## 1 2024 总结`→`## 2024 总结`→`## 总结`…）。根因：C3 的「低于 topLevel 剥一层但不补回前缀」分支没有定点。
+  - **U2**：标题间隔符设成标点（`。`/`、`/`-`…）时，E5b「保留 2024」承诺失效、吞掉标题首段数字（`## 1。2024 总结`→`## 1。总结`）。
+  - **U3**：启用字母样式时英文起头标题被吞（`## API 设计`→`## A 设计`，E5 的字母版，属 L1 同源取舍）。
+- **顺带确认 B8 无 bug**：放开「inherit×非空前后缀」约束后，参考记分板 20000×80 全绿 → testplan B8 从 🔲 改 ✅，并把该约束在默认模式正式放开（扩大覆盖）。
+- **`tests/dev_tests/known_bugs.test.ts`（新建）** — 把 U1/U2/U3 的最小复现钉成**通过**的特征化测试（快照当前错误输出 + 给未来修复者目标，保持 CI 常绿；修好会变红即信号）。
+- **文档**：`doc/testplan.md` 新增 §3.2（U1/U2/U3 表 + 根因 + 修复方向）、新增场景行 C6/B10/E12、B8→✅、改写 §4（框架升级、两模式两记分板、约束表）；`tests/dev_tests/uvm/README.md` 加「0.6.2 升级」节 + 约束表更新；`tests/user_tests/09-UVM新发现的侵蚀类bug.md`（新建，可在真实 Vault 复现 U1/U2/U3）+ README 索引补 08/09。
+- 版本 0.6.1→0.6.2（manifest/package/lock/versions 同步），`npm run release` 重建 `release/`。
+
+### 没做什么
+
+- **未修任何 bug**（用户明确要求本轮只发现+登记）。U1/U2/U3 全部留给后续。
+- 未碰编号引擎 `src/numbering.ts`、`parser.ts`、`main.ts` 等任何**产品代码**——本轮纯测试基建 + 文档 + 版本。
+- explore 模式的字母样式仍只在 explore 跑（默认约束未放开，因 U3 未修）。
+
+### 下一步
+
+- 修 **U1**（最严重，静默丢用户内容）：低于 topLevel / 白名单的标题剥离应**剥到定点**（循环剥净所有插件前缀样式段）而非只剥一层，或引入「记录插件写过什么」的状态。注意别和 C1/E5「不误伤裸标题」冲突。修好后：翻 testplan C6/§3.2 U1 → ✅、改 `known_bugs.test.ts` 对应断言为「幂等」期望、考虑在 explore 缩小对应脏维度或把 explore 转正。
+- 修 **U2**：标题间隔符匹配应仅切「序号 token 之后第一个分隔单元」，不让段间 `(?:sep)*` 越过界。
+- 验证方式：`AAH_FUZZ_MODE=explore AAH_FUZZ_RUNS=20000 AAH_FUZZ_OPS=80 npx vitest run tests/dev_tests/random_sequence.test.ts`（找 bug）；修完跑 `npm run test:fuzz` + 默认 `npm test` 全绿。
+
+---
+
 ## 2026-06-29 0.6.1 frontmatter 布尔化（claude/obsidian-auto-headings-m6-ik65hm）
 
 ### 做了什么
