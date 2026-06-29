@@ -107,6 +107,25 @@ describe("normalizeTemplate", () => {
 		expect(normalizeTemplate({}, "fb").topLevel).toBe(2); // 缺失（旧模板）回退
 	});
 
+	it("规范化 bottomLevel：夹到 1–6，非法/缺失回退 H6（无下界）", () => {
+		expect(normalizeTemplate({ bottomLevel: 4 }, "fb").bottomLevel).toBe(4);
+		expect(normalizeTemplate({ bottomLevel: 0 }, "fb").bottomLevel).toBe(1); // 夹到下限
+		expect(normalizeTemplate({ bottomLevel: 9 }, "fb").bottomLevel).toBe(6); // 夹到上限
+		expect(normalizeTemplate({ bottomLevel: "x" }, "fb").bottomLevel).toBe(6); // 非数字回退
+		expect(normalizeTemplate({}, "fb").bottomLevel).toBe(6); // 缺失（旧模板）回退
+	});
+
+	it("罗马数字样式合法、被保留（修复 0.6.3 schema 校验遗漏）", () => {
+		expect(
+			normalizeTemplate({ levels: { h2: { numeral: "lower-roman" } } }, "fb").levels.h2
+				.numeral,
+		).toBe("lower-roman");
+		expect(
+			normalizeTemplate({ levels: { h3: { numeral: "upper-roman" } } }, "fb").levels.h3
+				.numeral,
+		).toBe("upper-roman");
+	});
+
 	it("保留各级 suffix（后缀字段）", () => {
 		const t = normalizeTemplate({ levels: { h2: { prefix: "第", suffix: "章" } } }, "fb");
 		expect(t.levels.h2.prefix).toBe("第");

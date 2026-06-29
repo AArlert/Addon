@@ -13,6 +13,7 @@ import {
 	defaultPathRules,
 } from "./settings";
 import { AutoHeadingsSettingTab } from "./settings/SettingsTab";
+import { getMessages, type Messages, resolveLang } from "./i18n";
 import { readFileSwitch, SWITCH_KEY } from "./frontmatter";
 import { renumberContent, type Template } from "./numbering";
 import { clearNumberingContent } from "./cleanup";
@@ -50,8 +51,17 @@ export default class AutoHeadingsPlugin extends Plugin {
 	/** 以文件路径为键的防抖计时器；编辑另一个笔记不会取消当前笔记的待处理更新。 */
 	private readonly debounceTimers = new Map<string, number>();
 
+	/**
+	 * 当前界面语言的文案表（按 `settings.language` 解析，见 {@link resolveLang} / {@link getMessages}）。
+	 * 命令名在 onload 注册时取一次（改语言需重载插件才更新）；Notice 在调用时取，即时生效。
+	 */
+	messages(): Messages {
+		return getMessages(resolveLang(this.settings.language));
+	}
+
 	async onload(): Promise<void> {
 		await this.loadSettings();
+		const t = this.messages();
 
 		// 向 Obsidian 注册 frontmatter 属性为复选框类型（内部 API，1.4.0+）。
 		// 注册后用户在属性面板看到勾选框，写入 true/false 而非文本。
@@ -72,17 +82,18 @@ export default class AutoHeadingsPlugin extends Plugin {
 		// 全局切换命令：与「全局自动编号」面板开关双向同步（统一经由 setAutoNumber）。
 		this.addCommand({
 			id: "toggle-auto-headings",
-			name: "切换全局自动编号（全局）",
+			name: t.cmdToggle,
 			callback: async () => {
 				await this.setAutoNumber(!this.settings.autoNumber);
-				new Notice(this.settings.autoNumber ? "已启用全局自动编号" : "已禁用全局自动编号");
+				const m = this.messages();
+				new Notice(this.settings.autoNumber ? m.noticeEnabled : m.noticeDisabled);
 			},
 		});
 
 		// 立即重新编号：绕过防抖、绕过全局开关与 frontmatter false（手动命令路径，见 spec.md §3.1）。
 		this.addCommand({
 			id: "renumber-now",
-			name: "立即重新编号（当前文件）",
+			name: t.cmdRenumber,
 			editorCallback: (editor, ctx) => {
 				this.runImmediateRenumber(editor, ctx);
 			},
@@ -91,7 +102,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 		// 清除当前文件编号：剥离当前文件所有标题的编号前缀（M6，见 spec.md §3.10）。
 		this.addCommand({
 			id: "clear-numbering",
-			name: "清除当前文件编号",
+			name: t.cmdClear,
 			editorCallback: (editor, ctx) => {
 				this.runClearNumbering(editor, ctx);
 			},
@@ -267,7 +278,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 		});
 
 		if (newContent === oldContent) {
-			new Notice("当前文件无可清除的编号前缀");
+			new Notice(this.messages().noticeNothingToClear);
 			return;
 		}
 
@@ -286,7 +297,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 		if (changes.length > 0) {
 			editor.transaction({ changes });
 		}
-		new Notice("已清除编号");
+		new Notice(this.messages().noticeCleared);
 	}
 
 	/**
@@ -311,7 +322,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 				count++;
 			}
 		}
-		new Notice(`已清除全库编号（共修改 ${count} 个文件）`);
+		new Notice(this.messages().noticeClearedVault(count));
 	}
 
 	async loadSettings(): Promise<void> {
@@ -330,6 +341,10 @@ export default class AutoHeadingsPlugin extends Plugin {
 		// pathRules 缺失 / 非数组时回退到默认（`/`→「默认」）。
 		if (!Array.isArray(merged.pathRules)) {
 			merged.pathRules = defaultPathRules();
+		}
+		// language 缺失 / 非法（含旧版本无此字段）时回退到默认 `auto`。
+		if (merged.language !== "zh" && merged.language !== "en" && merged.language !== "auto") {
+			merged.language = "auto";
 		}
 		this.settings = merged as unknown as AutoHeadingsSettings;
 		this.settings.debounceDelay = clampDebounceDelay(this.settings.debounceDelay);
@@ -392,12 +407,13 @@ export default class AutoHeadingsPlugin extends Plugin {
 
 		const template = this.getTemplateForFile(path);
 		if (!template) {
-			new Notice("当前文件未匹配任何路径规则，无法编号");
+			new Notice(this.messages().noticeNoRule);
 			return;
 		}
 
+		const m = this.messages();
 		const changed = this.applyRenumber(editor, template);
-		new Notice(changed ? "已重新编号" : "无需改动");
+		new Notice(changed ? m.noticeRenumbered : m.noticeNoChange);
 	}
 
 	/**

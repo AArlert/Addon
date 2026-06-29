@@ -42,7 +42,12 @@ class FakeEditor {
 
 /** 被测插件的内部/私有面（运行时存在，TS 私有不阻止访问）。 */
 interface PluginInternals {
-	settings: { autoNumber: boolean; debounceDelay: number; pathRules: PathRule[] };
+	settings: {
+		autoNumber: boolean;
+		debounceDelay: number;
+		pathRules: PathRule[];
+		language: "auto" | "zh" | "en";
+	};
 	templateStore: {
 		getDefault(): Template;
 		all(): Template[];
@@ -110,6 +115,8 @@ function makePlugin(
 		autoNumber: opts.autoNumber ?? true,
 		debounceDelay: opts.delay ?? 300,
 		pathRules: opts.pathRules ?? [...defaultRules],
+		// 锁定中文，使 Notice 断言（本测试用中文文案）稳定，不受运行环境 Obsidian 语言探测影响。
+		language: "zh",
 	};
 	p.templateStore = {
 		getDefault: () => tplBox.current,

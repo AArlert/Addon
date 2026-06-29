@@ -15,6 +15,7 @@ import {
 	DEFAULT_TEMPLATE,
 	type LevelFormat,
 	normalizeAncestorNumeral,
+	normalizeBottomLevel,
 	normalizeTopLevel,
 	type NumeralStyle,
 	sanitizePlaceholder,
@@ -40,6 +41,8 @@ const NUMERAL_STYLES: readonly NumeralStyle[] = [
 	"circled",
 	"lower-alpha",
 	"upper-alpha",
+	"lower-roman",
+	"upper-roman",
 ];
 
 /** 合法的白名单匹配方式枚举（用于校验）。 */
@@ -148,6 +151,7 @@ export function normalizeTemplate(raw: unknown, fallbackName: string): Template 
 		whitelist: normalizeWhitelist(obj.whitelist),
 		skipFill: normalizeSkipFill(obj.skipFill),
 		topLevel: normalizeTopLevel(obj.topLevel),
+		bottomLevel: normalizeBottomLevel(obj.bottomLevel),
 		ancestorNumeral: normalizeAncestorNumeral(obj.ancestorNumeral),
 	};
 }

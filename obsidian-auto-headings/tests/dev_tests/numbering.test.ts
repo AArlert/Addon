@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { parseHeadings, type Heading } from "../../src/parser";
 import {
+	DEFAULT_BOTTOM_LEVEL,
 	DEFAULT_SKIP_FILL,
 	DEFAULT_TEMPLATE,
 	DEFAULT_TOP_LEVEL,
 	HeadingCounter,
 	WORD_JOINER,
 	buildPrefix,
+	normalizeBottomLevel,
 	numberHeadings,
 	previewLevel,
 	renderNumeral,
@@ -1051,5 +1053,66 @@ describe("跳级占位策略 skipFill（每个模板各自决定）", () => {
 	it("fill 占位为空时按 0 处理（规范化兜底，避免空段）", () => {
 		const result = renumberContent(content, withSkipFill({ mode: "fill", placeholder: "" }));
 		expect(result).toContain(`##### 1.1.0.1 ${WORD_JOINER}细目甲`);
+	});
+});
+
+describe("结束编号层级 bottomLevel（M6：编号区间下界）", () => {
+	/** 在默认模板基础上替换 topLevel / bottomLevel。 */
+	function withRange(topLevel: number, bottomLevel: number): Template {
+		return { ...DEFAULT_TEMPLATE, topLevel, bottomLevel };
+	}
+
+	it("normalizeBottomLevel：夹到 1–6，非数字/缺失回退 H6（无下界）", () => {
+		expect(normalizeBottomLevel(4)).toBe(4);
+		expect(normalizeBottomLevel(0)).toBe(1); // 夹到下限
+		expect(normalizeBottomLevel(9)).toBe(6); // 夹到上限
+		expect(normalizeBottomLevel("x")).toBe(DEFAULT_BOTTOM_LEVEL); // 非数字回退
+		expect(normalizeBottomLevel(undefined)).toBe(DEFAULT_BOTTOM_LEVEL); // 缺失（旧模板）回退
+		expect(DEFAULT_BOTTOM_LEVEL).toBe(6);
+	});
+
+	it("只编号 H2–H4：H5/H6 不写前缀、原样保留", () => {
+		const content = ["## 章", "### 节", "#### 子节", "##### 细目", "###### 末项"].join("\n");
+		const result = renumberContent(content, withRange(2, 4)).split("\n");
+		expect(result[0]).toBe(`## 1 ${WORD_JOINER}章`);
+		expect(result[1]).toBe(`### 1.1 ${WORD_JOINER}节`);
+		expect(result[2]).toBe(`#### 1.1.1 ${WORD_JOINER}子节`);
+		// 超出下界：不编号。
+		expect(result[3]).toBe("##### 细目");
+		expect(result[4]).toBe("###### 末项");
+	});
+
+	it("收窄结束层级后，超界标题残留的旧前缀被剥净（对称 C3）", () => {
+		// 先按无下界编号（H5 拿到 1.1.1.1）。
+		const content = ["## 章", "### 节", "#### 子", "##### 细"].join("\n");
+		const full = renumberContent(content, withRange(2, 6));
+		expect(full.split("\n")[3]).toBe(`##### 1.1.1.1 ${WORD_JOINER}细`);
+		// 把结束层级收窄到 H4：H5 的旧前缀须被剥成裸标题。
+		const narrowed = renumberContent(full, withRange(2, 4)).split("\n");
+		expect(narrowed[3]).toBe("##### 细");
+	});
+
+	it("区间编号幂等：连续两次结果一致", () => {
+		const content = ["## 章", "### 节", "#### 子", "##### 细"].join("\n");
+		const once = renumberContent(content, withRange(2, 4));
+		const twice = renumberContent(once, withRange(2, 4));
+		expect(twice).toBe(once);
+	});
+
+	it("超界标题仍作重置边界：其后同级标题计数独立", () => {
+		// H2–H3 编号；H4 超界但仍 bump，不影响 H3 计数。
+		const content = ["## 章", "### 节一", "#### 深", "### 节二"].join("\n");
+		const result = renumberContent(content, withRange(2, 3)).split("\n");
+		expect(result[1]).toBe(`### 1.1 ${WORD_JOINER}节一`);
+		expect(result[2]).toBe("#### 深"); // 超界，不编号
+		expect(result[3]).toBe(`### 1.2 ${WORD_JOINER}节二`); // 计数照常递进
+	});
+
+	it("previewLevel：超出 [top, bottom] 区间返回空", () => {
+		const tpl = withRange(2, 4);
+		expect(previewLevel(tpl, 2).length).toBeGreaterThan(0);
+		expect(previewLevel(tpl, 4).length).toBeGreaterThan(0);
+		expect(previewLevel(tpl, 5)).toEqual([]); // 超下界
+		expect(previewLevel(tpl, 1)).toEqual([]); // 超上界（低于 top）
 	});
 });
