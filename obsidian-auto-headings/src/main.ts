@@ -10,6 +10,7 @@ import { AutoHeadingsSettings, DEFAULT_SETTINGS, clampDebounceDelay } from "./se
 import { AutoHeadingsSettingTab } from "./settings/SettingsTab";
 import { isDisabledByFrontmatter } from "./frontmatter";
 import { renumberContent, type Template } from "./numbering";
+import { parseHeadings, type Heading } from "./parser";
 import { TemplateStore } from "./templates/TemplateStore";
 
 /**
@@ -21,7 +22,10 @@ import { TemplateStore } from "./templates/TemplateStore";
  *
  * Milestone 3：接入 {@link TemplateStore}（首次启用自动创建 templates/default.json）；
  * 编号改用 {@link getActiveTemplate} 返回的全局默认模板（GUI 编辑即时生效）。
- * 白名单匹配（M4）与按路径选模板（M5）见后续里程碑。
+ *
+ * Milestone 4：白名单随模板自动生效——{@link renumberContent}/`numberHeadings` 缺省即按
+ * `template.whitelist` 计算豁免（命中者不写前缀、不占计数器槽位，见 numbering.ts）。
+ * 按路径选模板（M5）见后续里程碑。
  */
 export default class AutoHeadingsPlugin extends Plugin {
 	settings: AutoHeadingsSettings = { ...DEFAULT_SETTINGS };
@@ -110,7 +114,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 	 * **旧前缀**写出的历史编号若只认当前模板值就剥不掉、会叠加。把所有模板用过的前后缀都纳入候选，
 	 * 旧前缀即可被剥净。`stripPrefix` 自身还会并入「当前级别值 + 空串」，故此处只需提供跨模板的并集。
 	 */
-	private strippableAffixes(): { prefixes: string[]; suffixes: string[] } {
+	strippableAffixes(): { prefixes: string[]; suffixes: string[] } {
 		const prefixes = new Set<string>([""]);
 		const suffixes = new Set<string>([""]);
 		for (const tpl of this.templateStore.all()) {
@@ -120,6 +124,18 @@ export default class AutoHeadingsPlugin extends Plugin {
 			}
 		}
 		return { prefixes: [...prefixes], suffixes: [...suffixes] };
+	}
+
+	/**
+	 * 解析**当前活动 Markdown 文件**的标题列表，供设置面板的白名单实时命中预览使用（见
+	 * SettingsTab 白名单编辑器）。无活动 Markdown 视图时返回空数组。
+	 */
+	currentFileHeadings(): Heading[] {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view) {
+			return [];
+		}
+		return parseHeadings(view.editor.getValue());
 	}
 
 	/**

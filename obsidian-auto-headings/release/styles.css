@@ -91,3 +91,75 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
+
+/* —— 白名单编辑器（Milestone 4）—— */
+.ah-whitelist {
+	margin-top: 0.75em;
+}
+
+.ah-wl-input-row {
+	margin: 0.25em 0 0.5em;
+}
+
+.ah-wl-input {
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.ah-wl-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-bottom: 0.5em;
+}
+
+.ah-wl-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 6px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-secondary);
+	font-size: var(--font-ui-small);
+}
+
+.ah-wl-chip-text {
+	color: var(--text-normal);
+}
+
+.ah-wl-chip-match.dropdown {
+	height: auto;
+	padding: 0 1.2em 0 0.3em;
+	font-size: var(--font-ui-smaller);
+}
+
+/* 命中数角标 */
+.ah-wl-chip-count {
+	min-width: 1.2em;
+	padding: 0 0.3em;
+	border-radius: var(--radius-s);
+	background: var(--background-modifier-border);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	text-align: center;
+}
+
+.ah-wl-chip-warn {
+	color: var(--text-warning);
+	cursor: help;
+}
+
+.ah-wl-chip-del {
+	color: var(--text-faint);
+	cursor: pointer;
+	padding: 0 2px;
+}
+
+.ah-wl-chip-del:hover {
+	color: var(--text-error);
+}
+
+.ah-wl-preview {
+	margin-top: 0.25em;
+}

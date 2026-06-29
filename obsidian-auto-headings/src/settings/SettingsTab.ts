@@ -2,13 +2,22 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import type AutoHeadingsPlugin from "../main";
 import {
 	type AncestorNumeral,
+	analyzeWhitelist,
 	normalizeAncestorNumeral,
 	normalizeTopLevel,
 	type NumeralStyle,
 	previewLevel,
 	type Template,
+	type WhitelistEntry,
 } from "../numbering";
 import { DEFAULT_TEMPLATE_NAME, LEVEL_KEYS, type LevelKey } from "../templates/schema";
+
+/** 白名单匹配方式下拉的选项（值 → 中文标签）。 */
+const MATCH_OPTIONS: Record<WhitelistEntry["match"], string> = {
+	exact: "全部",
+	partial: "部分",
+	subtree: "子树",
+};
 
 /** 序号样式下拉的选项（值 → 中文标签，含示例字形）。 */
 const NUMERAL_OPTIONS: Record<NumeralStyle, string> = {
@@ -25,10 +34,11 @@ const NUMERAL_OPTIONS: Record<NumeralStyle, string> = {
  * 顶部为面板全局开关；其下为模板区：
  * - 「+ 新增模板」按钮新增模板；
  * - 每个模板一行，右侧有「删除」（默认模板禁用）与「编辑」按钮；
- * - 「编辑」向下展开行内面板：H2–H6 五行 × 五列（前缀 / 序号 / 序号间隔符 /
- *   标题间隔符 / 继承前级），附实时预览；非默认模板可在面板内改名。
+ * - 「编辑」向下展开行内面板：H1–H6 六行 × 六列（前缀 / 序号 / 序号间隔符 / 后缀 /
+ *   标题间隔符 / 继承前级），附实时预览；非默认模板可在面板内改名；底部含**白名单编辑器**
+ *   （Milestone 4，见 {@link renderWhitelistEditor}）。
  *
- * 白名单编辑器与路径规则管理器分别在 Milestone 4 / 5 加入。
+ * 路径规则管理器在 Milestone 5 加入。
  */
 export class AutoHeadingsSettingTab extends PluginSettingTab {
 	private readonly plugin: AutoHeadingsPlugin;
@@ -338,11 +348,121 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 				);
 		}
 
-		// 白名单（Milestone 4）占位提示。
-		panel.createEl("p", {
-			cls: "ah-section-desc",
-			text: "白名单编辑器将在后续里程碑加入；现有白名单条目会被保留。",
+		// —— 白名单编辑器（Milestone 4，模板级）——
+		this.renderWhitelistEditor(panel, template);
+	}
+
+	/**
+	 * 渲染某模板的白名单编辑器（模板级配置，见 spec.md §3.7）。
+	 *
+	 * - 顶部输入框：键入词语后按 Enter 添加为一枚条目（默认「全部匹配」）；完全相同的 (词语, 匹配方式)
+	 *   自动去重。
+	 * - 每枚条目（chip）显示词语 + 匹配方式下拉（全部 / 部分 / 子树）+ 命中数角标 + ✕ 删除；当条目为
+	 *   全部 / 部分且命中的标题含子标题时，附 ⚠ 提示引导改用子树（见 testplan D5）。
+	 * - 底部针对**当前活动文件**实时列出「本白名单将豁免的标题」（命中数 + 标题清单）。
+	 */
+	private renderWhitelistEditor(panel: HTMLElement, template: Template): void {
+		const section = panel.createDiv({ cls: "ah-whitelist" });
+
+		new Setting(section)
+			.setName("白名单")
+			.setDesc(
+				"命中的标题不编号、也不占用计数器槽位（不跳号）。匹配方式：全部（完全相等）、部分（包含该词）、子树（命中标题及其下属子标题整体豁免）。",
+			);
+
+		// —— 添加输入框 ——
+		const inputRow = section.createDiv({ cls: "ah-wl-input-row" });
+		const input = inputRow.createEl("input", {
+			type: "text",
+			cls: "ah-wl-input",
 		});
+		input.placeholder = "输入词语后按 Enter 添加…";
+		const addEntry = async () => {
+			const text = input.value.trim();
+			if (text === "") {
+				return;
+			}
+			// 去重：完全相同的 (词语, 匹配方式=全部) 不重复添加。
+			const exists = template.whitelist.some((e) => e.text === text && e.match === "exact");
+			if (!exists) {
+				template.whitelist.push({ text, match: "exact" });
+				await this.plugin.templateStore.save(template);
+				this.plugin.renumberActiveFile();
+			}
+			input.value = "";
+			this.display();
+		};
+		input.addEventListener("keydown", (e) => {
+			if (e.key === "Enter") {
+				e.preventDefault();
+				void addEntry();
+			}
+		});
+
+		// —— 已有条目（chips）——
+		const affixes = this.plugin.strippableAffixes();
+		const headings = this.plugin.currentFileHeadings();
+		const analysis = analyzeWhitelist(headings, template, {
+			strippablePrefixes: affixes.prefixes,
+			strippableSuffixes: affixes.suffixes,
+		});
+		const chipsEl = section.createDiv({ cls: "ah-wl-chips" });
+		if (template.whitelist.length === 0) {
+			chipsEl.createEl("span", { cls: "ah-section-desc", text: "（暂无条目）" });
+		}
+		template.whitelist.forEach((entry, index) => {
+			const hit = analysis.perEntry[index];
+			const chip = chipsEl.createDiv({ cls: "ah-wl-chip" });
+			chip.createEl("span", { cls: "ah-wl-chip-text", text: entry.text });
+
+			// 匹配方式下拉。
+			const select = chip.createEl("select", { cls: "dropdown ah-wl-chip-match" });
+			(Object.keys(MATCH_OPTIONS) as WhitelistEntry["match"][]).forEach((m) => {
+				const opt = select.createEl("option", { value: m, text: MATCH_OPTIONS[m] });
+				if (m === entry.match) {
+					opt.selected = true;
+				}
+			});
+			select.addEventListener("change", async () => {
+				entry.match = select.value as WhitelistEntry["match"];
+				await this.plugin.templateStore.save(template);
+				this.plugin.renumberActiveFile();
+				this.display();
+			});
+
+			// 命中数角标。
+			chip.createEl("span", {
+				cls: "ah-wl-chip-count",
+				text: String(hit?.count ?? 0),
+			});
+
+			// ⚠ 含子标题告警（全部 / 部分命中却含子标题，应改用子树）。
+			if (hit?.warnHasChildren) {
+				const warn = chip.createEl("span", { cls: "ah-wl-chip-warn", text: "⚠" });
+				warn.title =
+					"命中的标题下还有子标题，子标题不会被豁免、会错挂到上一已编号祖先。建议改用「子树」整块豁免。";
+			}
+
+			// ✕ 删除。
+			const del = chip.createEl("span", { cls: "ah-wl-chip-del", text: "✕" });
+			del.addEventListener("click", async () => {
+				template.whitelist.splice(index, 1);
+				await this.plugin.templateStore.save(template);
+				this.plugin.renumberActiveFile();
+				this.display();
+			});
+		});
+
+		// —— 当前文件实时命中预览 ——
+		const preview = section.createEl("p", { cls: "ah-section-desc ah-wl-preview" });
+		if (headings.length === 0) {
+			preview.setText("（打开一个含标题的 Markdown 文件以预览本白名单的命中）");
+		} else if (analysis.exempted.length === 0) {
+			preview.setText("当前文件无标题被本白名单豁免。");
+		} else {
+			const titles = analysis.exempted.map((h) => h.text).join(" · ");
+			preview.setText(`当前文件将豁免 ${analysis.exempted.length} 个标题：${titles}`);
+		}
 	}
 
 	/** 创建一个文本输入单元格，封装 onChange。 */
