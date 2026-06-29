@@ -103,6 +103,26 @@ export default class AutoHeadingsPlugin extends Plugin {
 	}
 
 	/**
+	 * 收集**全部模板各级别在用的前缀 / 后缀并集**，供剥离时识别历史前缀（方案 A，见
+	 * {@link renumberContent} 的 `strippablePrefixes` / `strippableSuffixes`）。
+	 *
+	 * 解决 testplan B2/B3：用户把某模板的前缀（如「第」）改走、或在多模板间切换后，文件里用
+	 * **旧前缀**写出的历史编号若只认当前模板值就剥不掉、会叠加。把所有模板用过的前后缀都纳入候选，
+	 * 旧前缀即可被剥净。`stripPrefix` 自身还会并入「当前级别值 + 空串」，故此处只需提供跨模板的并集。
+	 */
+	private strippableAffixes(): { prefixes: string[]; suffixes: string[] } {
+		const prefixes = new Set<string>([""]);
+		const suffixes = new Set<string>([""]);
+		for (const tpl of this.templateStore.all()) {
+			for (const level of Object.values(tpl.levels)) {
+				prefixes.add(level.prefix);
+				suffixes.add(level.suffix);
+			}
+		}
+		return { prefixes: [...prefixes], suffixes: [...suffixes] };
+	}
+
+	/**
 	 * 重命名模板，并同步更新 `data.json` 中引用该模板名的路径规则（路径规则见
 	 * Milestone 5；当前尚无规则，故仅做模板文件改名）。
 	 *
@@ -215,7 +235,11 @@ export default class AutoHeadingsPlugin extends Plugin {
 			return false;
 		}
 
-		const newContent = renumberContent(oldContent, this.getActiveTemplate());
+		const { prefixes, suffixes } = this.strippableAffixes();
+		const newContent = renumberContent(oldContent, this.getActiveTemplate(), {
+			strippablePrefixes: prefixes,
+			strippableSuffixes: suffixes,
+		});
 		if (newContent === oldContent) {
 			return false;
 		}

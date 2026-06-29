@@ -35,13 +35,16 @@
  * ## 约束（= 当前 strip 健壮性的精确刻画）
  *
  * 默认生成器只在「当前已修好、参考不变量恒成立」的空间里随机，确保 CI 常绿：
- * - `prefix` / `suffix`：每条序列开始时随机定一次、**全程不变**（可非空，如「第…章」）。
- * - `inherit`：仅当 prefix 与 suffix **都为空**时才允许翻转（非空时父级段剥不净，见 testplan B3 同源）。
- * - `topLevel`：**只减不增**（升高会留下移出编号范围的旧前缀，testplan C3）。
+ * - `prefix` / `suffix`：**已放开**——在「空 ↔ 本序列候选」间随机切换（B2/B3 已修，方案 A）；剥离选项
+ *   传入「空 + 候选」并集模拟 main.ts 行为。数字 / 字母起头标题也**不再回避**（L2 已修，恒纳入空前缀
+ *   候选 → 对称吃掉，配合「只剥一层」使 `1 2024` 保留）。
+ * - `inherit`：仍仅当当前 prefix 与 suffix **都为空**时才允许翻转（非空前后缀下 inherit 翻转另案，未放开）。
+ * - `topLevel`：仍**只减不增**（升高会留下移出编号范围的旧前缀，testplan C3，待「清除编号」命令兜底）。
+ * - 随机样式仍只用 arabic/cjk/circled（不混字母，L1 有意取舍）。
  * - 其余（numeral、两个间隔符、skipFill、ancestorNumeral、文本编辑、层级、代码块、白名单）：自由变。
  *
- * > 这些约束**就是 bug 边界**：等 B2/B3（改前后缀）、C3（升 topLevel）被修好，放开对应约束即可让
- * > 框架自动覆盖更大空间（见 uvm/README.md「放开约束」）。
+ * > 这些约束**就是 bug 边界**：B2/B3（改前后缀）、L2（数字起头标题）已修并放开；C3（升 topLevel）、
+ * > inherit×非空前后缀、字母样式仍约束着，待后续修好再逐一放开（见 uvm/README.md「放开约束」）。
  */
 
 import {
@@ -85,18 +88,16 @@ const TITLES = [
 ];
 /** 白名单词（归一化后命中即豁免编号）。 */
 const WHITELIST = new Set(["目录", "附录", "参考文献"]);
-/** "自食前缀"型标题：本身以**数字**开头，前缀为空时会被 arabic 剥离器按预期吃掉（spec §2.3 已认定）。 */
-const SELF_EATING = new Set(["2024 总结", "100% 覆盖"]);
 /**
- * 以数字/字母开头的标题：仅当模板**前缀为空**时才喂给生成器。
+ * "自食前缀"型标题：本身以**数字**开头（如 `2024 总结`），会被 arabic 剥离器按预期吃掉
+ * （spec §2.3 既定取舍）。
  *
- * 原因（参考模型的固有局限，非编号 bug）：前缀非空时，剥离需先匹配字面前缀（如「第」）才开始吃，
- * 故**裸标题**「2024 总结」不会被吃（没有「第」开头）；但一旦该行带上「第1. 」前缀，容差剥离会顺势
- * 走过「第1. 2024 」把 2024 也吃掉。这种「带前缀后才吃、裸态不吃」的**历史相关**行为属 spec §2.3
- * 既定的「手写数字前缀会被覆盖」范畴，但参考模型（总从裸文档重算）无法表达，会误报。前缀为空时
- * 裸态与带前缀态**对称地都吃**，参考模型一致，故仅在前缀非空时回避这类标题。E5 静态测试已专门覆盖之。
+ * **不再按前缀是否为空回避**（旧版有 `TOKEN_STARTING` 过滤，对应 testplan L2 约束）：方案 A 让剥离
+ * 时**恒把「空前缀」纳入候选**，故无论模板前缀是否非空，裸标题「2024 总结」都会被对称地吃掉
+ * （`第1 总结` / `1 总结`），参考模型恒一致。配合「只剥一层」，`1 2024 总结`（用户在序号后补回数字）
+ * 又能稳定保留——这正是 L2 被修复、约束得以放开的体现（E5 静态测试覆盖 `1 2024` 保留）。
  */
-const TOKEN_STARTING = /^[0-9A-Za-z]/;
+const SELF_EATING = new Set(["2024 总结", "100% 覆盖"]);
 
 /**
  * 随机变换用的序号样式池：**仅 always-strippable 三种**（arabic / cjk / circled）。
@@ -110,8 +111,9 @@ const TOKEN_STARTING = /^[0-9A-Za-z]/;
 const NUMERALS: NumeralStyle[] = ["arabic", "cjk", "circled"];
 const NUMBER_SEPS = [".", "-", "·", ")", "．"];
 const TITLE_SEPS = [" ", "、", ". ", "。", "： "];
-const PREFIXES = ["", "", "第", "（"];
-const SUFFIXES = ["", "", "章", "）"];
+/** 非空前缀 / 后缀候选（每条序列各定一个，序列内在「空 ↔ 该候选」间随机切换，验证 B2/B3）。 */
+const PREFIX_CANDIDATES = ["第", "（"];
+const SUFFIX_CANDIDATES = ["章", "）"];
 /** 标题级别取样（偏向 H2–H4，但也覆盖 H1/H5/H6）。 */
 const LEVEL_POOL = [1, 2, 2, 3, 3, 3, 4, 4, 5, 6];
 
@@ -127,7 +129,6 @@ function whitelistKey(text: string): string {
 function isWhitelisted(h: Heading): boolean {
 	return WHITELIST.has(whitelistKey(h.text));
 }
-const RENUMBER_OPTS = { isWhitelisted };
 
 /** 各类激励（仅用于覆盖率与失败时的轨迹打印）。 */
 export type OpKind =
@@ -141,6 +142,8 @@ export type OpKind =
 	| "setNumberSep"
 	| "setTitleSep"
 	| "setInherit"
+	| "setPrefix"
+	| "setSuffix"
 	| "setTopLevelLower"
 	| "setSkipFill"
 	| "setAncestor"
@@ -156,6 +159,10 @@ export class Coverage {
 	ancestorArabic = false;
 	ancestorSelf = false;
 	topLevelLowered = false;
+	/** 前缀 / 后缀曾被切换（验证 B2/B3 的状态转移）。 */
+	affixToggled = false;
+	/** 曾在「前缀或后缀非空」的状态下触发编号。 */
+	affixNonEmptyTrigger = false;
 	fencePresent = false;
 	whitelistHit = false;
 	emptyTitle = false;
@@ -182,6 +189,8 @@ export class Coverage {
 			"setNumberSep",
 			"setTitleSep",
 			"setInherit",
+			"setPrefix",
+			"setSuffix",
 			"setTopLevelLower",
 			"setSkipFill",
 			"setAncestor",
@@ -197,6 +206,8 @@ export class Coverage {
 		if (!this.ancestorArabic) missing.push("ancestor=arabic");
 		if (!this.ancestorSelf) missing.push("ancestor=self");
 		if (!this.topLevelLowered) missing.push("topLevel-lowered");
+		if (!this.affixToggled) missing.push("affix-toggled");
+		if (!this.affixNonEmptyTrigger) missing.push("affix-nonempty-trigger");
 		if (!this.fencePresent) missing.push("fence");
 		if (!this.whitelistHit) missing.push("whitelist-hit");
 		if (!this.emptyTitle) missing.push("empty-title");
@@ -224,10 +235,19 @@ export class World {
 	/** 与 bare 行一一对应；含上一次触发写入的前缀（刚插入/改写的行暂为裸文本）。 */
 	private rendered: string[];
 	private template: Template;
-	/** 本序列固定的（可非空）前后缀；为空时才允许翻转 inherit。 */
-	private readonly affixEmpty: boolean;
-	/** 本序列的标题取样池；前缀非空时回避「数字/字母起头」标题（见 {@link TOKEN_STARTING}）。 */
-	private readonly titlePool: string[];
+	/** 本序列的非空前缀 / 后缀候选；前后缀在「空 ↔ 候选」间切换（验证 B2/B3）。 */
+	private readonly prefixCandidate: string;
+	private readonly suffixCandidate: string;
+	/**
+	 * 传给 `renumberContent` 的剥离选项：`strippablePrefixes` / `strippableSuffixes` 取「空 + 候选」，
+	 * 模拟 main.ts 传入的「全模板前后缀并集」（方案 A），使前后缀切换后旧前缀仍能被剥净。
+	 */
+	private readonly opts: { isWhitelisted: typeof isWhitelisted } & {
+		strippablePrefixes: string[];
+		strippableSuffixes: string[];
+	};
+	/** 本序列的标题取样池；方案 A 后不再回避「数字/字母起头」标题（恒含空前缀候选 → 对称处理）。 */
+	private readonly titlePool: string[] = TITLES;
 	private readonly trace: string[] = [];
 
 	constructor(
@@ -235,15 +255,21 @@ export class World {
 		private readonly seed: number,
 		private readonly cov: Coverage,
 	) {
-		const prefix = rng.pick(PREFIXES);
-		const suffix = rng.pick(SUFFIXES);
-		this.affixEmpty = prefix === "" && suffix === "";
-		this.titlePool = prefix === "" ? TITLES : TITLES.filter((t) => !TOKEN_STARTING.test(t));
+		this.prefixCandidate = rng.pick(PREFIX_CANDIDATES);
+		this.suffixCandidate = rng.pick(SUFFIX_CANDIDATES);
+		this.opts = {
+			isWhitelisted,
+			strippablePrefixes: ["", this.prefixCandidate],
+			strippableSuffixes: ["", this.suffixCandidate],
+		};
+		// 起始前后缀随机为「空」或「候选」（后续 setPrefix/setSuffix 还会切换）。
+		const startPrefix = rng.chance(0.5) ? "" : this.prefixCandidate;
+		const startSuffix = rng.chance(0.5) ? "" : this.suffixCandidate;
 		const topLevel = rng.intRange(1, 3);
 		const tpl = structuredClone(DEFAULT_TEMPLATE);
 		for (const k of ["h1", "h2", "h3", "h4", "h5", "h6"] as const) {
-			tpl.levels[k].prefix = prefix;
-			tpl.levels[k].suffix = suffix;
+			tpl.levels[k].prefix = startPrefix;
+			tpl.levels[k].suffix = startSuffix;
 		}
 		tpl.topLevel = topLevel;
 		this.template = tpl;
@@ -384,16 +410,20 @@ export class World {
 
 	// ── 配置类激励（在约束内）─────────────────────────────────────────────────
 	private config(): void {
-		const allowInherit = this.affixEmpty;
+		// inherit 翻转仍按**当前**前后缀是否都为空门控（约束未放开；非空前后缀下 inherit 翻转另案）。
+		const affixEmptyNow =
+			this.template.levels.h2.prefix === "" && this.template.levels.h2.suffix === "";
 		const choices: OpKind[] = [
 			"setNumeral",
 			"setNumberSep",
 			"setTitleSep",
+			"setPrefix",
+			"setSuffix",
 			"setTopLevelLower",
 			"setSkipFill",
 			"setAncestor",
 		];
-		if (allowInherit) choices.push("setInherit");
+		if (affixEmptyNow) choices.push("setInherit");
 		const kind = this.rng.pick(choices);
 		const lvls = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
 		switch (kind) {
@@ -423,6 +453,21 @@ export class World {
 				this.template.levels[lvl].inherit = v;
 				if (!v) this.cov.inheritFalse = true;
 				this.trace.push(`setInherit ${lvl}=${v}`);
+				break;
+			}
+			case "setPrefix": {
+				// 在「空 ↔ 候选」间切换（所有级别同步），验证 B2/B3「改前缀后再触发不叠加」。
+				const v = this.rng.chance(0.5) ? "" : this.prefixCandidate;
+				for (const lvl of lvls) this.template.levels[lvl].prefix = v;
+				this.cov.affixToggled = true;
+				this.trace.push(`setPrefix ${JSON.stringify(v)}`);
+				break;
+			}
+			case "setSuffix": {
+				const v = this.rng.chance(0.5) ? "" : this.suffixCandidate;
+				for (const lvl of lvls) this.template.levels[lvl].suffix = v;
+				this.cov.affixToggled = true;
+				this.trace.push(`setSuffix ${JSON.stringify(v)}`);
 				break;
 			}
 			case "setTopLevelLower": {
@@ -459,8 +504,11 @@ export class World {
 
 	// ── 触发（DUT）+ 记分板（参考模型）────────────────────────────────────────
 	private trigger(): void {
+		if (this.template.levels.h2.prefix !== "" || this.template.levels.h2.suffix !== "") {
+			this.cov.affixNonEmptyTrigger = true;
+		}
 		const before = this.rendered.join("\n");
-		const after = renumberContent(before, this.template, RENUMBER_OPTS);
+		const after = renumberContent(before, this.template, this.opts);
 		this.rendered = after.split("\n");
 		this.cov.bumpOp("trigger");
 		this.cov.triggers++;
@@ -484,7 +532,7 @@ export class World {
 	/** 记分板：DUT 输出必须等于「裸文档真值直接编号」，且层级 / 原样行不被改写。 */
 	private check(): void {
 		const dut = this.rendered.join("\n");
-		const reference = renumberContent(serialize(this.bare), this.template, RENUMBER_OPTS);
+		const reference = renumberContent(serialize(this.bare), this.template, this.opts);
 		if (dut !== reference) {
 			throw new SequenceError(
 				this.seed,
