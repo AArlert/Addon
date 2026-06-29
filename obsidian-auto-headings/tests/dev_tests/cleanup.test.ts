@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clearNumberingContent } from "../../src/cleanup";
-import { renumberContent, DEFAULT_TEMPLATE } from "../../src/numbering";
+import { renumberContent, DEFAULT_TEMPLATE, WORD_JOINER } from "../../src/numbering";
 
 describe("clearNumberingContent（M6 H 类场景）", () => {
 	// H1: 对已编号文件执行清除 → 所有前缀剥成裸标题
@@ -75,24 +75,26 @@ describe("C3 修复：调高 topLevel 后降出范围的标题旧前缀被剥除
 		// 第一步：topLevel=H1，H1 被编号为 `# 1 篇`，H2 继承后为 `## 1.1 节`（testplan C2 已验）
 		const tplH1 = { ...DEFAULT_TEMPLATE, topLevel: 1 };
 		const afterH1 = renumberContent("# 篇\n## 节", tplH1);
-		expect(afterH1).toBe("# 1 篇\n## 1.1 节");
+		expect(afterH1).toBe(`# 1 ${WORD_JOINER}篇\n## 1.1 ${WORD_JOINER}节`);
 
 		// 第二步：topLevel 调高到 H2，再触发 → H1 的 `1 ` 前缀应被剥除，H2 重排
 		const tplH2 = { ...DEFAULT_TEMPLATE, topLevel: 2 };
 		const afterH2 = renumberContent(afterH1, tplH2);
-		expect(afterH2).toBe("# 篇\n## 1 节");
+		expect(afterH2).toBe(`# 篇\n## 1 ${WORD_JOINER}节`);
 	});
 
 	it("C3: 深层 topLevel 调高（H2→H3），H2 旧前缀被剥除", () => {
 		const tplH2 = { ...DEFAULT_TEMPLATE, topLevel: 2 };
 		const numbered = renumberContent("## 节\n### 子节\n#### 细节", tplH2);
-		expect(numbered).toBe("## 1 节\n### 1.1 子节\n#### 1.1.1 细节");
+		expect(numbered).toBe(
+			`## 1 ${WORD_JOINER}节\n### 1.1 ${WORD_JOINER}子节\n#### 1.1.1 ${WORD_JOINER}细节`,
+		);
 
 		// 调高 topLevel 到 H3
 		const tplH3 = { ...DEFAULT_TEMPLATE, topLevel: 3 };
 		const afterRaise = renumberContent(numbered, tplH3);
 		// H2 降出范围，旧前缀 `1 ` 被剥除；H3/H4 重新编号
-		expect(afterRaise).toBe("## 节\n### 1 子节\n#### 1.1 细节");
+		expect(afterRaise).toBe(`## 节\n### 1 ${WORD_JOINER}子节\n#### 1.1 ${WORD_JOINER}细节`);
 	});
 
 	it("C3: 幂等性 — 再次触发结果不变", () => {
@@ -110,6 +112,6 @@ describe("C3 修复：调高 topLevel 后降出范围的标题旧前缀被剥除
 		const tplH2 = { ...DEFAULT_TEMPLATE, topLevel: 2 };
 		const result = renumberContent("# 纯裸标题\n## 1 节", tplH2);
 		// H1 本就没有前缀，剥离后仍是 `纯裸标题`
-		expect(result).toBe("# 纯裸标题\n## 1 节");
+		expect(result).toBe(`# 纯裸标题\n## 1 ${WORD_JOINER}节`);
 	});
 });

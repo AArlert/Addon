@@ -31,6 +31,44 @@
 
 ---
 
+## 2026-06-29 0.6.4 Word Joiner 写入前缀输出，彻底消除分隔歧义（claude/obsidian-auto-headings-0.6.3-xdeojz）
+
+### 做了什么
+
+- **`src/numbering.ts`**：
+  - **`buildPrefix` 末尾追加 WJ**：`return fmt.prefix + numberStr + fmt.suffix + fmt.titleSeparator + WORD_JOINER`。每个由插件写出的前缀末尾都携带 Word Joiner（U+2060，不可见），作为精确结束标记。
+  - **JSDoc 同步更新**：`WORD_JOINER` 常量说明改为「`buildPrefix` 在每个前缀末尾追加该字符，0.6.4 起始终写入」；`buildPrefix` 函数注释补充 WJ 追加说明；`stripPrefix`/`stripPrefixBroad` 的 WJ 快速路径注释去掉「尚未写入」的前向兼容说明，改为「0.6.4 起写入，此路径生效」。
+- **测试（全部更新以含 WJ 的新格式为断言基准）**：
+  - `tests/dev_tests/numbering.test.ts`：所有输出带编号前缀的断言更新（`previewLevel`、`buildPrefix`、`numberHeadings`、`renumberContent` 等约 30 处）。
+  - `tests/dev_tests/whitelist.test.ts`：导入 `WORD_JOINER`，`prefixes()` 断言与 `renumberContent` 非白名单断言更新。
+  - `tests/dev_tests/main.test.ts`：导入 `WORD_JOINER`，幂等性测试与各集成场景（J4/J1/J3/J7/I1/I3/I6/J5 等）更新。
+  - `tests/dev_tests/cleanup.test.ts`：导入 `WORD_JOINER`，C3 系列断言更新（含 C3 深层调高 / 幂等性 / 裸 H1 不受影响）。
+  - `tests/dev_tests/known_bugs.test.ts`：导入 `WORD_JOINER`，U2/U3 断言更新含 WJ。
+- **文档**：
+  - `testplan.md`：「2024 折中」说明块追加 0.6.4 根治说明（WJ 写入 + 快速路径精确截断）；E5b 行更新预期与状态；E13 行更新为「0.6.4 `buildPrefix` 写入 WJ，完全幂等」。
+  - `doc/log.md`（本文件）：本条。
+  - `doc/status.jsonl`：插入 0.6.4 概括行，更新首行。
+- 版本号 0.6.3→**0.6.4**（package.json / manifest.json / versions.json / package-lock.json）。
+- `npm run release`：release/ 已更新（main.js / manifest.json / styles.css / zip）。
+
+### 没做什么
+
+- **清除器（`clearNumberingContent`）不写 WJ**：清除器负责将带前缀标题剥成裸标题，输出无前缀无 WJ，这是期望行为。
+- **U3 未修**（字母/罗马样式吞英文词起头标题）：属 L1 同源取舍，特征化钉住，与 0.6.4 无关。
+- **explore 模式脏标题约束未放开**：U1/U2 已修，但脏标题还会撞 U3，留后续。
+
+### 下一步
+
+- 手验：手动装载 release/ 插件，触发带数字正文的标题（如 `## 概述`→`## 1 ⁠概述`；`## 1 ⁠2024 总结` 再触发稳定）。
+- 可选：放开 explore 脏标题约束（U1/U2 已修，U3 取舍钉住即可）。
+- 可选：处理 U3（字母/罗马样式吞英文词），属下一轮。
+
+### 验证方式
+
+`npm test`（197 passed + 1 skipped）、`npm run test:fuzz`（5000×80 全绿）、`npm run lint`、`npm run format:check` 全绿。
+
+---
+
 ## 2026-06-29 0.6.3 罗马数字样式 + 修复 U1/U2 + Word Joiner 验证（claude/obsidian-auto-headings-0.6.3-xdeojz）
 
 ### 做了什么

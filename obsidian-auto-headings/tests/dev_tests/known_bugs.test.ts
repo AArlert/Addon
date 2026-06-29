@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	DEFAULT_TEMPLATE,
+	WORD_JOINER,
 	renumberContent,
 	type NumeralStyle,
 	type Template,
@@ -44,17 +45,18 @@ describe("bug 回归（0.6.3 修复 U1/U2；U3 仍为特征化）", () => {
 	it("U2 修复：titleSeparator 为「数字间隔符类」标点(。)时，E5b『保留 2024』承诺成立", () => {
 		// 0.6.3 修复：tolerantInnerSeparator 阻止 `。` 被当作段间分隔符消费，
 		// `1。2024 总结` 正确识别为「序号=1，titleSep=。，正文=2024 总结」，2024 不被吞。
+		// 0.6.4：buildPrefix 追加 WJ，输出形如 `1。⁠2024 总结`。
 		const t = setAll(tpl(), { titleSeparator: "。" });
-		expect(renumberContent("## 1。2024 总结", t)).toBe("## 1。2024 总结"); // 2024 保留
-		// 对照：titleSeparator=空格时 E5b 承诺同样成立（0.6.2 已有）
+		expect(renumberContent("## 1。2024 总结", t)).toBe(`## 1。${WORD_JOINER}2024 总结`);
+		// 对照：titleSeparator=空格时 E5b 承诺同样成立（WJ 精确定界）
 		const tSpace = setAll(tpl(), { titleSeparator: " " });
-		expect(renumberContent("## 1 2024 总结", tSpace)).toBe("## 1 2024 总结");
+		expect(renumberContent("## 1 2024 总结", tSpace)).toBe(`## 1 ${WORD_JOINER}2024 总结`);
 	});
 
 	it("U3：启用 upper/lower-alpha 时，字母/英文起头的标题被当字母序号吞掉（特征化，未修）", () => {
 		// 现状（取舍/bug 边界）：末段剥离 token 在「模板实际使用字母样式」时纳入 [A-Z]+/[a-z]+，
-		// 于是 "API 设计" 的 "API" 被当 upper-alpha 序号剥掉。一次性（幂等）。
+		// 于是 "API 设计" 的 "API" 被当 upper-alpha 序号剥掉，再编号成 "A ⁠设计"（含 WJ）。
 		const t = setAll(tpl(), { numeral: "upper-alpha" });
-		expect(renumberContent("## API 设计", t)).toBe("## A 设计"); // "API" 被吞，再编号成 "A"
+		expect(renumberContent("## API 设计", t)).toBe(`## A ${WORD_JOINER}设计`);
 	});
 });

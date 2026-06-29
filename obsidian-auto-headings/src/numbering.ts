@@ -493,8 +493,10 @@ export function renderNumeral(style: NumeralStyle, value: number): string {
  * 序号段从模板的 `topLevel` 起算（而非固定 H2）：如 `topLevel=H1` 时 H2 前缀为 `1.1`、
  * `topLevel=H3` 时 H4 前缀为 `1.1`（只取 H3–H4 两段）。仅应对 `level >= topLevel` 调用。
  *
- * - 继承前级 = 开：`prefix + 各级序号（以 numberSeparator 拼接，每级各自套用其样式）+ suffix + titleSeparator`。
- * - 继承前级 = 关：`prefix + 本级序号 + suffix + titleSeparator`。
+ * - 继承前级 = 开：`prefix + 各级序号（以 numberSeparator 拼接，每级各自套用其样式）+ suffix + titleSeparator + {@link WORD_JOINER}`。
+ * - 继承前级 = 关：`prefix + 本级序号 + suffix + titleSeparator + {@link WORD_JOINER}`。
+ *
+ * 末尾追加 {@link WORD_JOINER}（U+2060）作为精确结束标记，导出 / 复制不可见，消除前缀与正文的歧义。
  */
 export function buildPrefix(template: Template, level: number, counter: HeadingCounter): string {
 	const fmt = getLevelFormat(template, level);
@@ -539,8 +541,8 @@ export function buildPrefix(template: Template, level: number, counter: HeadingC
 		numberStr = renderNumeral(fmt.numeral, counter.current(level));
 	}
 
-	// 顺序：前缀 + 完整序号 + 后缀 + 标题间隔符（如「第」+「1」+「章」+「 」→「第1章 」）。
-	return fmt.prefix + numberStr + fmt.suffix + fmt.titleSeparator;
+	// 顺序：前缀 + 完整序号 + 后缀 + 标题间隔符 + WJ（如「第」+「1」+「章」+「 」+WJ→「第1章 ⁠」）。
+	return fmt.prefix + numberStr + fmt.suffix + fmt.titleSeparator + WORD_JOINER;
 }
 
 /**
@@ -610,9 +612,9 @@ const NUMBER_SEPARATOR_CLASS = "[.,;:、，。．·：；)）】」』>\\]-]";
 /**
  * Word Joiner（U+2060）：零宽不换行字符，在导出 / 复制时不可见。
  *
- * 导出用途：可在插件写出的前缀末尾插入该字符作为**精确结束标记**，从而无歧义地区分「前缀」与「正文」，
- * 解决 C3 修复与「2024 折中」的历史遗留问题。当前版本**尚未**将其写入文件（已在 {@link stripPrefix} /
- * {@link stripPrefixBroad} 加入快速路径，待写出路径就绪时即可启用）。
+ * {@link buildPrefix} 在每个前缀末尾追加该字符作为**精确结束标记**，无歧义地区分「前缀」与「正文」：
+ * `1 ⁠标题` 中 WJ 不可见，但 {@link stripPrefix} / {@link stripPrefixBroad} 通过快速路径精确截断，
+ * 彻底消除「2024 折中」与 C3 的历史歧义。旧格式（不含 WJ）仍由正则路径向后兼容。
  */
 export const WORD_JOINER = "⁠";
 
@@ -791,8 +793,8 @@ export function stripPrefix(
 	template: Template,
 	options: Pick<NumberOptions, "strippablePrefixes" | "strippableSuffixes"> = {},
 ): string {
-	// WJ 快速路径：若标题已含 Word Joiner 标记，精确剥离到标记处（包含标记本身），O(n) 无正则开销。
-	// 当前版本写出路径尚未插入 WJ，此路径为前向兼容预留（未来启用写出 WJ 后即生效）。
+	// WJ 快速路径：若标题已含 Word Joiner 标记（buildPrefix 在 0.6.4 起始终写入），
+	// 精确剥离到标记处（包含标记本身），O(n) 无正则开销；旧格式由下方正则路径向后兼容。
 	const wjIdx = text.indexOf(WORD_JOINER);
 	if (wjIdx >= 0) {
 		return text.slice(wjIdx + 1);
@@ -1153,7 +1155,7 @@ export function stripPrefixBroad(
 	knownPrefixes: readonly string[] = [],
 	knownSuffixes: readonly string[] = [],
 ): string {
-	// WJ 快速路径：前向兼容，当写出路径启用 WORD_JOINER 标记时即生效。
+	// WJ 快速路径：buildPrefix 在 0.6.4 起写入 WJ，此路径生效；旧格式由下方正则路径兼容。
 	const wjIdx = rawText.indexOf(WORD_JOINER);
 	if (wjIdx >= 0) {
 		return rawText.slice(wjIdx + 1).replace(/\s+$/, "");
