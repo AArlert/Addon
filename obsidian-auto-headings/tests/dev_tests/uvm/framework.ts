@@ -32,20 +32,29 @@
  * 两者相等 ⟺ `stripPrefix` 把历史前缀剥得干干净净。**任何前缀叠加 / 残留都会让两侧不等而被当场抓出**
  * （B1–B5、C3 都能被这一条逮到），且参考侧复用**可信的 build 路径**、不重复实现编号逻辑。
  *
- * ## 约束（= 当前 strip 健壮性的精确刻画）
+ * ## 两种模式与两块记分板（0.6.2 升级）
  *
- * 默认生成器只在「当前已修好、参考不变量恒成立」的空间里随机，确保 CI 常绿：
- * - `prefix` / `suffix`：**已放开**——在「空 ↔ 本序列候选」间随机切换（B2/B3 已修，方案 A）；剥离选项
- *   传入「空 + 候选」并集模拟 main.ts 行为。数字 / 字母起头标题也**不再回避**（L2 已修，恒纳入空前缀
- *   候选 → 对称吃掉，配合「只剥一层」使 `1 2024` 保留）。
- * - `inherit`：仍仅当当前 prefix 与 suffix **都为空**时才允许翻转（非空前后缀下 inherit 翻转另案，未放开）。
- * - `topLevel`：**已放开**（0.6.0 C3 修复，`numberHeadings` 对低于 topLevel 的标题也调用
- *   `stripHeadingPrefix` 剥旧前缀，故升高后两侧一致，约束不再需要）。
- * - 随机样式仍只用 arabic/cjk/circled（不混字母，L1 有意取舍）。
- * - 其余（numeral、两个间隔符、skipFill、ancestorNumeral、文本编辑、层级、代码块、白名单）：自由变。
+ * 由 {@link GenConfig} 切换：
+ * - **默认模式**（{@link DEFAULT_GEN}，参考模型记分板 {@link World.check}）：在「已修好、参考不变量恒成立」
+ *   的受约束空间里随机，确保 CI 常绿、专逮残留 / 叠加。本轮在此**放开 inherit×非空前后缀**（B8 实测无 bug）、
+ *   **新增就地安全编辑** {@link OpKind editTitleInPlace}（模拟在已编号标题里继续打字）。
+ * - **explore 模式**（{@link EXPLORE_GEN}，幂等性记分板 {@link World.checkIdempotent}）：**放开全部约束**
+ *   （字母样式 / inherit×非空前后缀 / 脏标题 / 手动破坏前缀），用恒成立的幂等性（`renumber∘renumber===renumber`）
+ *   找 bug。本轮在 20000×80 里撞出 testplan §3.2 的 **U1**（低于 topLevel 标题逐次侵蚀）、**U2**（标点
+ *   titleSeparator 吞标题首段数字）、**U3**（字母样式吞英文起头标题）。
  *
- * > 这些约束**就是 bug 边界**：B2/B3（改前后缀）、L2（数字起头标题）、C3（升 topLevel）已修并放开；
- * > inherit×非空前后缀、字母样式仍约束着，待后续修好再逐一放开（见 uvm/README.md「放开约束」）。
+ * ## 约束（= 默认模式下 strip 健壮性的精确刻画）
+ *
+ * - `prefix` / `suffix`：**已放开**——「空 ↔ 候选」随机切换（B2/B3 已修，方案 A）。数字起头标题**不再回避**
+ *   （L2 已修）。
+ * - `inherit`：**0.6.2 已放开**——可在非空前后缀下翻转（B8 实测无叠加、幂等，原约束过保守）。
+ * - `topLevel`：**已放开**（0.6.0 C3 修复）。
+ * - 默认模式随机样式仍只用 arabic/cjk/circled（字母样式 L1/U3 取舍，仅 explore 放开）；默认模式不喂脏标题、
+ *   不破坏前缀区（E5/U1/U2 取舍/未修 bug，仅 explore 放开）。
+ * - 其余（numeral、两个间隔符、skipFill、ancestorNumeral、文本编辑、就地编辑、层级、代码块、白名单）：自由变。
+ *
+ * > 默认约束**就是 bug 边界**：放开一条 = 扩大覆盖，放开后变红即没修彻底。explore 模式则故意越过这些边界
+ * > 找新 bug（U1/U2/U3 即此而来）。详见 uvm/README.md「放开约束」。
  */
 
 import {
@@ -119,6 +128,79 @@ const SUFFIX_CANDIDATES = ["章", "）"];
 const LEVEL_POOL = [1, 2, 2, 3, 3, 3, 4, 4, 5, 6];
 
 /**
+ * **字母样式**（lower/upper-alpha）：仅 explore 模式纳入随机样式池。
+ * 默认仍按 L1 取舍排除（见框架顶部注释）；explore 放开以撞「改走字母后残留」「字母自食标题」等。
+ */
+const NUMERALS_WITH_ALPHA: NumeralStyle[] = [...NUMERALS, "lower-alpha", "upper-alpha"];
+
+/**
+ * 「就地编辑」追加用的**安全碎片**：纯中文、不以数字 / 分隔符 / 字母 / 空白起头。
+ * 默认模式下用它给已带前缀的标题追加文本，保证「裸↔渲染」对应干净、参考模型不变量恒成立。
+ */
+const SAFE_FRAGMENTS = ["补充", "说明", "细节", "续", "草稿"];
+
+/**
+ * explore 模式的**脏碎片**：以分隔符 / 数字 / 字母 / 空白起头，专门撞**容差剥离的误伤边界**
+ * （标题首字符恰落入「标题间隔符容差类」或「序号 token」时是否被吃掉）。
+ */
+const MESSY_FRAGMENTS = ["-注", ".5", "、附", "2024 ", "a) ", "  ", ") ", "."];
+
+/** explore 模式额外的**分隔符 / 符号起头标题**（裸态即以容差类字符起头）。 */
+const MESSY_TITLES = ["- 列表式标题", ". 点起头", "、顿号起头", ") 右括起头", "1.2 像子号"];
+
+/**
+ * **生成器约束配置**：把「在哪些维度上随机」抽成可切换的配置。
+ * - {@link DEFAULT_GEN}：当前「常绿」空间（约束 = strip 健壮性的精确刻画），新增「就地安全编辑」。
+ * - {@link EXPLORE_GEN}：**放开已知约束**（字母样式 / inherit×非空前后缀 / 脏编辑）的**找 bug** 空间，
+ *   改用**幂等性记分板**（恒成立、容脏输入），不在默认 CI 跑（见 random_sequence.test.ts 的 explore 门）。
+ */
+export interface GenConfig {
+	/** 随机序号样式池（默认 arabic/cjk/circled；explore 加 lower/upper-alpha）。 */
+	numerals: NumeralStyle[];
+	/** 是否允许在「当前前后缀非空」时翻转 `inherit`（默认否=约束；explore 放开，验证 testplan B8）。 */
+	allowInheritWithAffix: boolean;
+	/** 是否启用「就地编辑已带前缀的标题」激励（保留旧前缀、改标题文本，模拟真实打字）。 */
+	inPlaceEdit: boolean;
+	/** 是否启用「手动破坏前缀区」激励（删字符 / 改数字 / 去空格，模拟手抖删错；仅 explore）。 */
+	manualPrefixEdit: boolean;
+	/** 是否把「脏碎片 / 分隔符起头标题」纳入取样（仅 explore）。 */
+	messyTitles: boolean;
+	/**
+	 * 记分板：
+	 * - `reference`：裸文档参考模型（强，能逮残留/叠加，但要求激励落在「干净」空间）。
+	 * - `idempotent`：幂等性（`renumber∘renumber === renumber`，**恒成立**、容脏输入与放开的约束）。
+	 */
+	oracle: "reference" | "idempotent";
+}
+
+/**
+ * 默认（常绿）生成配置：参考模型记分板。本轮在原约束上**放开两处、新增一处**（均经 20000×80 验证绿）：
+ * - 放开 `inherit × 非空前后缀`（testplan B8 实测无叠加、幂等，原约束过保守）；
+ * - 新增「就地安全编辑」（保留旧前缀改标题文本，模拟真实打字主线）。
+ *
+ * 仍约束：字母样式（L1 取舍）、脏标题 / 手动破坏前缀（参考模型对其会因 E5/L1 取舍误报，改由
+ * explore 模式 + 幂等性记分板覆盖，见 {@link EXPLORE_GEN}）。
+ */
+export const DEFAULT_GEN: GenConfig = {
+	numerals: NUMERALS,
+	allowInheritWithAffix: true,
+	inPlaceEdit: true,
+	manualPrefixEdit: false,
+	messyTitles: false,
+	oracle: "reference",
+};
+
+/** explore（找 bug）生成配置：放开字母 / inherit×非空前后缀 / 脏编辑，改用幂等性记分板。 */
+export const EXPLORE_GEN: GenConfig = {
+	numerals: NUMERALS_WITH_ALPHA,
+	allowInheritWithAffix: true,
+	inPlaceEdit: true,
+	manualPrefixEdit: true,
+	messyTitles: true,
+	oracle: "idempotent",
+};
+
+/**
  * 把标题文本归一化后判断是否命中白名单：剥掉**前导的序号样字 + 间隔符**再比较，使
  * 「附录」「1 附录」「1.1 附录」都归一为「附录」。DUT 与参考两侧用同一 matcher，结果一致。
  */
@@ -138,6 +220,8 @@ export type OpKind =
 	| "insertFence"
 	| "deleteLine"
 	| "retitle"
+	| "editTitleInPlace"
+	| "mutatePrefix"
 	| "changeLevel"
 	| "setNumeral"
 	| "setNumberSep"
@@ -172,6 +256,12 @@ export class Coverage {
 	levelGE5 = false;
 	levelJump = false;
 	selfEatingTitle = false;
+	/** 曾就地编辑过「已带前缀」的标题（保留旧前缀改文本）。 */
+	inPlaceEdited = false;
+	/** 曾手动破坏过前缀区（explore）。 */
+	prefixMutated = false;
+	/** 曾在「前后缀非空」状态下翻转 inherit（explore，验证 B8）。 */
+	inheritWithAffix = false;
 	triggers = 0;
 
 	bumpOp(kind: OpKind): void {
@@ -187,6 +277,7 @@ export class Coverage {
 			"insertFence",
 			"deleteLine",
 			"retitle",
+			"editTitleInPlace",
 			"changeLevel",
 			"setNumeral",
 			"setNumberSep",
@@ -218,6 +309,7 @@ export class Coverage {
 		if (!this.levelGE5) missing.push("level>=5");
 		if (!this.levelJump) missing.push("level-jump");
 		if (!this.selfEatingTitle) missing.push("self-eating-title");
+		if (!this.inPlaceEdited) missing.push("in-place-edit");
 		return missing;
 	}
 }
@@ -251,14 +343,16 @@ export class World {
 		strippableSuffixes: string[];
 	};
 	/** 本序列的标题取样池；方案 A 后不再回避「数字/字母起头」标题（恒含空前缀候选 → 对称处理）。 */
-	private readonly titlePool: string[] = TITLES;
+	private readonly titlePool: string[];
 	private readonly trace: string[] = [];
 
 	constructor(
 		private readonly rng: Rng,
 		private readonly seed: number,
 		private readonly cov: Coverage,
+		private readonly cfg: GenConfig = DEFAULT_GEN,
 	) {
+		this.titlePool = cfg.messyTitles ? [...TITLES, ...MESSY_TITLES] : TITLES;
 		this.prefixCandidate = rng.pick(PREFIX_CANDIDATES);
 		this.suffixCandidate = rng.pick(SUFFIX_CANDIDATES);
 		this.opts = {
@@ -318,14 +412,16 @@ export class World {
 
 	// ── 编辑类激励 ───────────────────────────────────────────────────────────
 	private edit(): void {
-		const choices = [
+		const choices: OpKind[] = [
 			"insertHeading",
 			"insertRaw",
 			"insertFence",
 			"deleteLine",
 			"retitle",
 			"changeLevel",
-		] as const;
+		];
+		if (this.cfg.inPlaceEdit) choices.push("editTitleInPlace");
+		if (this.cfg.manualPrefixEdit) choices.push("mutatePrefix");
 		const kind = this.rng.pick(choices);
 		const len = this.bare.length;
 		switch (kind) {
@@ -395,6 +491,80 @@ export class World {
 				}
 				break;
 			}
+			case "editTitleInPlace": {
+				// 「就地编辑」：用户在**已经带编号前缀**的标题行里继续打字 / 改文本，**旧前缀仍留在行上**。
+				// 这是真实使用的主线（不像 retitle 把整行清空重打），也是 strip 最易出错处——剥离面对的是
+				// 「（可能用旧配置写的）旧前缀 + 新标题文本」。默认模式只追加**安全碎片**（保参考模型干净）；
+				// explore 模式允许追加 / 前插**脏碎片**（分隔符 / 数字 / 字母 / 空白起头），撞容差剥离误伤边界。
+				const hs = this.headingIndices();
+				if (hs.length) {
+					const i = this.rng.pick(hs);
+					const h = this.bare[i] as Extract<Line, { kind: "heading" }>;
+					const oldTitle = h.title;
+					// 从当前渲染行提取「旧前缀」= marker 之后、裸标题之前的那段（可能含上次触发写入的编号）。
+					const marker = "#".repeat(h.level) + " ";
+					const body = this.rendered[i].startsWith(marker)
+						? this.rendered[i].slice(marker.length)
+						: this.rendered[i];
+					const oldPrefix = body.endsWith(oldTitle)
+						? body.slice(0, body.length - oldTitle.length)
+						: "";
+					let newTitle: string | null = null;
+					if (this.cfg.messyTitles && this.rng.chance(0.5)) {
+						const frag = this.rng.pick(MESSY_FRAGMENTS);
+						newTitle = this.rng.chance(0.5) ? frag + oldTitle : oldTitle + frag;
+					} else if (
+						// 默认模式：避开自食 / 白名单 / 空标题，保证「裸↔渲染」strip 干净、参考模型恒一致。
+						this.cfg.messyTitles ||
+						(!SELF_EATING.has(oldTitle) && !WHITELIST.has(oldTitle) && oldTitle !== "")
+					) {
+						newTitle = oldTitle + this.rng.pick(SAFE_FRAGMENTS);
+					}
+					if (newTitle !== null) {
+						this.bare[i] = { kind: "heading", level: h.level, title: newTitle };
+						this.rendered[i] = marker + oldPrefix + newTitle;
+						this.cov.inPlaceEdited = true;
+						if (SELF_EATING.has(newTitle)) this.cov.selfEatingTitle = true;
+						this.trace.push(
+							`editTitleInPlace #${i} keepPrefix=${JSON.stringify(oldPrefix)} -> ${JSON.stringify(newTitle)}`,
+						);
+					}
+				}
+				break;
+			}
+			case "mutatePrefix": {
+				// 手动破坏前缀区（explore 专用）：用户手抖删/改了编号里的字符（删一位、去空格、改数字），
+				// 但**裸标题意图不变**。故**不更新 bare**——只能用幂等性记分板校验（参考模型在此无效）。
+				const hs = this.headingIndices();
+				if (hs.length) {
+					const i = this.rng.pick(hs);
+					const h = this.bare[i] as Extract<Line, { kind: "heading" }>;
+					const marker = "#".repeat(h.level) + " ";
+					if (this.rendered[i].startsWith(marker)) {
+						const body = this.rendered[i].slice(marker.length);
+						// 仅当 body 比裸标题长（带前缀）时才破坏。
+						if (body.length > h.title.length) {
+							const prefixLen = body.length - h.title.length;
+							let pre = body.slice(0, prefixLen);
+							const which = this.rng.int(3);
+							if (which === 0 && pre.length) {
+								const k = this.rng.int(pre.length);
+								pre = pre.slice(0, k) + pre.slice(k + 1); // 删一个字符
+							} else if (which === 1) {
+								pre = pre.replace(" ", ""); // 去一个空格
+							} else {
+								pre = pre.replace(/\d/, (d) => String((Number(d) + 1) % 10)); // 改一个数字
+							}
+							this.rendered[i] = marker + pre + h.title;
+							this.cov.prefixMutated = true;
+							this.trace.push(
+								`mutatePrefix #${i} -> ${JSON.stringify(this.rendered[i])}`,
+							);
+						}
+					}
+				}
+				break;
+			}
 			case "changeLevel": {
 				const hs = this.headingIndices();
 				if (hs.length) {
@@ -427,12 +597,12 @@ export class World {
 			"setSkipFill",
 			"setAncestor",
 		];
-		if (affixEmptyNow) choices.push("setInherit");
+		if (affixEmptyNow || this.cfg.allowInheritWithAffix) choices.push("setInherit");
 		const kind = this.rng.pick(choices);
 		const lvls = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
 		switch (kind) {
 			case "setNumeral": {
-				const n = this.rng.pick(NUMERALS);
+				const n = this.rng.pick(this.cfg.numerals);
 				const lvl = this.rng.pick(lvls);
 				this.template.levels[lvl].numeral = n;
 				this.cov.numerals.add(n);
@@ -454,6 +624,12 @@ export class World {
 			case "setInherit": {
 				const v = this.rng.chance(0.5);
 				const lvl = this.rng.pick(lvls);
+				if (
+					this.template.levels[lvl].prefix !== "" ||
+					this.template.levels[lvl].suffix !== ""
+				) {
+					this.cov.inheritWithAffix = true;
+				}
 				this.template.levels[lvl].inherit = v;
 				if (!v) this.cov.inheritFalse = true;
 				this.trace.push(`setInherit ${lvl}=${v}`);
@@ -519,7 +695,11 @@ export class World {
 		this.cov.triggers++;
 		this.trace.push("— trigger —");
 		this.detectLevelJump();
-		this.check();
+		if (this.cfg.oracle === "reference") {
+			this.check();
+		} else {
+			this.checkIdempotent();
+		}
 	}
 
 	private detectLevelJump(): void {
@@ -531,6 +711,31 @@ export class World {
 				this.cov.levelJump = true;
 				return;
 			}
+		}
+	}
+
+	/**
+	 * **幂等性记分板**（explore 模式）：对刚触发得到的文本**再触发一次**，必须不变
+	 * （`renumber(renumber(x)) === renumber(x)`，见 testplan §1「幂等性总断言」）。
+	 *
+	 * 它**恒成立、与配置无关**，故能容纳放开的约束（字母样式 / inherit×非空前后缀）与脏激励
+	 * （就地脏编辑 / 手动破坏前缀）——这些会让「裸文档参考模型」因既定取舍（E5/L1）误报，而幂等性不会。
+	 * 它逮的是「再触发就变样」的**非定点叠加**（旧前缀没剥净、下一次又叠一层且与上次不同）。
+	 *
+	 * > 局限：若叠加后的形态本身已是**定点**（再触发不变，如 L1 残留 `1 a) 标题`），幂等性逮不到——
+	 * > 那类「定点但错」的残留由默认模式的参考模型在受约束空间里把守。两记分板**互补**。
+	 */
+	private checkIdempotent(): void {
+		const once = this.rendered.join("\n"); // = 本次触发输出（已写回 rendered）。
+		const twice = renumberContent(once, this.template, this.opts);
+		if (twice !== once) {
+			throw new SequenceError(
+				this.seed,
+				this.trace,
+				`幂等性失败（连续触发两次不一致 → 旧前缀未剥净 / 非定点叠加）\n  1× : ${JSON.stringify(
+					once,
+				)}\n  2× : ${JSON.stringify(twice)}`,
+			);
 		}
 	}
 
@@ -592,9 +797,14 @@ function headingLevels(text: string): number[] {
 }
 
 /** 跑一条序列：给定种子与操作步数，全程在记分板监督下随机推进。失败抛 {@link SequenceError}。 */
-export function runSequence(seed: number, ops: number, cov: Coverage): void {
+export function runSequence(
+	seed: number,
+	ops: number,
+	cov: Coverage,
+	cfg: GenConfig = DEFAULT_GEN,
+): void {
 	const rng = new Rng(seed);
-	const world = new World(rng, seed, cov);
+	const world = new World(rng, seed, cov, cfg);
 	for (let i = 0; i < ops; i++) {
 		world.step();
 	}
