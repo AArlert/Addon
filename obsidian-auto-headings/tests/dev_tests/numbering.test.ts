@@ -596,10 +596,12 @@ describe("多个 H1 与起始编号层级 topLevel", () => {
 		expect(renumberContent(content, withTopLevel(3))).toBe(expected);
 	});
 
-	it("低于起始层级的标题不被剥离（不误伤「2024 总结」这类标题）", () => {
+	it("C3 修复后：低于 topLevel 的标题会剥离数字前缀（「2024 总结」被剥为「总结」属已接受风险，spec §2.3）", () => {
+		// 0.6.0 C3 修复前：H1 低于 topLevel 时原样返回；修复后调用 stripHeadingPrefix，
+		// 因无法区分「插件写的 1 」与「用户写的 2024 」而一并剥除（既定取舍）。
 		const content = ["# 2024 总结", "## 正文"].join("\n");
 		const result = renumberContent(content);
-		expect(result.split("\n")[0]).toBe("# 2024 总结"); // H1 原样，未被当前缀剥掉
+		expect(result.split("\n")[0]).toBe("# 总结");
 	});
 });
 

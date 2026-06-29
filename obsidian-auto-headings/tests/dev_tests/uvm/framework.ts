@@ -39,11 +39,12 @@
  *   传入「空 + 候选」并集模拟 main.ts 行为。数字 / 字母起头标题也**不再回避**（L2 已修，恒纳入空前缀
  *   候选 → 对称吃掉，配合「只剥一层」使 `1 2024` 保留）。
  * - `inherit`：仍仅当当前 prefix 与 suffix **都为空**时才允许翻转（非空前后缀下 inherit 翻转另案，未放开）。
- * - `topLevel`：仍**只减不增**（升高会留下移出编号范围的旧前缀，testplan C3，待「清除编号」命令兜底）。
+ * - `topLevel`：**已放开**（0.6.0 C3 修复，`numberHeadings` 对低于 topLevel 的标题也调用
+ *   `stripHeadingPrefix` 剥旧前缀，故升高后两侧一致，约束不再需要）。
  * - 随机样式仍只用 arabic/cjk/circled（不混字母，L1 有意取舍）。
  * - 其余（numeral、两个间隔符、skipFill、ancestorNumeral、文本编辑、层级、代码块、白名单）：自由变。
  *
- * > 这些约束**就是 bug 边界**：B2/B3（改前后缀）、L2（数字起头标题）已修并放开；C3（升 topLevel）、
+ * > 这些约束**就是 bug 边界**：B2/B3（改前后缀）、L2（数字起头标题）、C3（升 topLevel）已修并放开；
  * > inherit×非空前后缀、字母样式仍约束着，待后续修好再逐一放开（见 uvm/README.md「放开约束」）。
  */
 
@@ -144,7 +145,7 @@ export type OpKind =
 	| "setInherit"
 	| "setPrefix"
 	| "setSuffix"
-	| "setTopLevelLower"
+	| "setTopLevel"
 	| "setSkipFill"
 	| "setAncestor"
 	| "trigger";
@@ -159,6 +160,8 @@ export class Coverage {
 	ancestorArabic = false;
 	ancestorSelf = false;
 	topLevelLowered = false;
+	/** topLevel 被**升高**（C3 修复后放开，见框架顶部注释）。 */
+	topLevelRaised = false;
 	/** 前缀 / 后缀曾被切换（验证 B2/B3 的状态转移）。 */
 	affixToggled = false;
 	/** 曾在「前缀或后缀非空」的状态下触发编号。 */
@@ -191,7 +194,7 @@ export class Coverage {
 			"setInherit",
 			"setPrefix",
 			"setSuffix",
-			"setTopLevelLower",
+			"setTopLevel",
 			"setSkipFill",
 			"setAncestor",
 			"trigger",
@@ -206,6 +209,7 @@ export class Coverage {
 		if (!this.ancestorArabic) missing.push("ancestor=arabic");
 		if (!this.ancestorSelf) missing.push("ancestor=self");
 		if (!this.topLevelLowered) missing.push("topLevel-lowered");
+		if (!this.topLevelRaised) missing.push("topLevel-raised");
 		if (!this.affixToggled) missing.push("affix-toggled");
 		if (!this.affixNonEmptyTrigger) missing.push("affix-nonempty-trigger");
 		if (!this.fencePresent) missing.push("fence");
@@ -419,7 +423,7 @@ export class World {
 			"setTitleSep",
 			"setPrefix",
 			"setSuffix",
-			"setTopLevelLower",
+			"setTopLevel",
 			"setSkipFill",
 			"setAncestor",
 		];
@@ -470,12 +474,13 @@ export class World {
 				this.trace.push(`setSuffix ${JSON.stringify(v)}`);
 				break;
 			}
-			case "setTopLevelLower": {
+			case "setTopLevel": {
 				const cur = this.template.topLevel;
-				const next = this.rng.intRange(1, cur);
+				const next = this.rng.intRange(1, 4);
 				if (next < cur) this.cov.topLevelLowered = true;
+				if (next > cur) this.cov.topLevelRaised = true;
 				this.template.topLevel = next;
-				this.trace.push(`setTopLevelLower ${cur}->${next}`);
+				this.trace.push(`setTopLevel ${cur}->${next}`);
 				break;
 			}
 			case "setSkipFill": {

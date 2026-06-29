@@ -1001,14 +1001,17 @@ export function numberHeadings(
 		// 推进计数器（即便低于 topLevel，也作为重置边界）。
 		counter.bump(level);
 
-		// 低于起始编号层级：不编号、不剥离、原样保留。
+		// 低于起始编号层级：不编号，但剥除可能残留的旧编号前缀（C3 修复，见 testplan §C3）。
+		// 用与已编号标题相同的剥离器（stripHeadingPrefix），不另引入更激进的全样式剥离——
+		// 字母样式仅在模板实际使用时才参与，避免「API 设计」等以字母起头的标题被误剥。
 		if (level < top) {
+			const text = stripHeadingPrefix(heading, level, template, options);
 			return {
 				level,
-				text: heading.text,
+				text,
 				prefix: null,
 				lineIndex: heading.lineIndex,
-				numberedLine: `${hashes} ${heading.text}`,
+				numberedLine: `${hashes} ${text}`,
 			};
 		}
 
@@ -1022,6 +1025,37 @@ export function numberHeadings(
 			numberedLine: `${hashes} ${prefix}${text}`,
 		};
 	});
+}
+
+/**
+ * 全样式宽松前缀剥离——用于 M6「清除编号」命令（见 `cleanup.ts`）。
+ *
+ * 与 {@link stripPrefix} 相比更激进：**末段也纳入字母样式**（lower-alpha / upper-alpha），
+ * 不依赖任何模板参数（不查 `template.levels[*].numeral` 是否在用字母）。仅剥一层
+ * （「2024 折中」，同 {@link stripPrefix}）。
+ *
+ * **已知风险（spec §3.10 / §2.3 预期取舍）：** 以序号样字（含字母）开头紧跟分隔符的标题
+ * 可能被误剥——如 `a) 概述` → `概述` ✓，但 `API 设计` → `设计` ⚠️。
+ * 「清除编号」是用户主动操作，此风险已被接受。与调高 topLevel 时的 C3 修复不同——后者
+ * 走模板感知的 {@link stripHeadingPrefix}，仅当模板实际使用字母时才剥字母前缀，误伤面更小。
+ *
+ * @param rawText 标题的原始文本（含行尾空白，见 {@link Heading.rawText}）
+ * @param knownPrefixes 已知前缀候选（含空串；由 main.ts 传入全模板前缀并集）
+ * @param knownSuffixes 已知后缀候选（同上）
+ */
+export function stripPrefixBroad(
+	rawText: string,
+	knownPrefixes: readonly string[] = [],
+	knownSuffixes: readonly string[] = [],
+): string {
+	const allToken = `(?:${ALL_NUMERAL_STYLES.map(numeralTokenPattern).join("|")})`;
+	const sep = `${NUMBER_SEPARATOR_CLASS}+`;
+	const numberPattern = `(?:${allToken}${sep})*${allToken}`;
+	const prefixAlt = affixAlternation([...knownPrefixes, ""]);
+	const suffixAlt = affixAlternation([...knownSuffixes, ""]);
+	const titleSep = `${TITLE_SEPARATOR_CLASS}+`;
+	const pattern = new RegExp(`^${prefixAlt}${numberPattern}${suffixAlt}${titleSep}`);
+	return rawText.replace(pattern, "").replace(/\s+$/, "");
 }
 
 /**
