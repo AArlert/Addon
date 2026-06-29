@@ -98,6 +98,61 @@ obsidian-auto-headings/
 
 ---
 
+## 2026-06-29 — 升版 0.4.0：Milestone 4 白名单系统（引擎匹配 + 默认词表 + GUI 编辑器）
+
+**交接人：** 分支 `claude/obsidian-auto-headings-m4-1ylpto`
+
+**做了什么：**
+
+- **进入 Milestone 4**：版本号从 `0.3.19` 跨到 **`0.4.0`**（M=4，`*` 归零；同步 manifest/package/
+  versions/lockfile/release）。
+- **白名单匹配引擎**（`src/numbering.ts`）：
+  - `normalizeForWhitelist(text)`：归一化用于命中判定（**不改写文件**）——去行内 Markdown（`**`/`*`/
+    `_`/`` ` ``/链接）→ NFKC（折叠全角空格等）→ trim + 折叠内部空白 → 转小写。
+  - `computeWhitelistExemptions(headings, template, options)`：对每个标题先 `stripPrefix` 剥旧编号
+    （**豁免即去号**，D7）再归一，与各条目比对——`exact`（完全相等）/ `partial`（包含子串）/
+    `subtree`（精确命中为根，覆盖其后更深标题、遇同级/更高级终止）。**多条目取并集**（`子树 > 全部 =
+    部分`）。返回应豁免的 `Heading` 引用集合。
+  - `numberHeadings` 接线：**缺省**即按 `template.whitelist` 自动计算豁免（命中者不写前缀、不占计数器
+    槽位）；显式 `options.isWhitelisted` 回调仍**覆盖**（保持旧单测注入语义）。
+  - `analyzeWhitelist(headings, template, options)`：供设置面板的逐条命中数（`perEntry[i].count`）、
+    「自身被全部/部分豁免却含子标题」的 ⚠ 标记（`warnHasChildren`）、与豁免标题并集（`exempted`）。
+- **默认模板预填词表**：`DEFAULT_WHITELIST()` 返回 16 条（中英各 8：目录/Contents、附录/Appendix、
+  附图/Figures、附表/Tables、参考文献/References、致谢/Acknowledgements、摘要/Abstract、索引/Index），
+  默认均「全部匹配」。`DEFAULT_TEMPLATE.whitelist` 改用它（旧仅 3 条占位）。
+- **GUI 白名单编辑器**（`src/settings/SettingsTab.ts` + `styles.css`）：模板展开面板底部替换原占位提示，
+  渲染——输入框（Enter 添加、`(text, match)` 去重）、条目 chip（词语 + 匹配方式下拉「全部/部分/子树」+
+  命中数角标 + 含子标题 ⚠ + ✕ 删除）、当前活动文件实时命中预览「将豁免 N 个标题：…」。配套
+  `main.ts` 新增 `currentFileHeadings()`、把 `strippableAffixes()` 转公开供面板取并集剥离选项。
+- **测试**：新增 `tests/dev_tests/whitelist.test.ts`（20 例）覆盖归一化 + D1–D4/D6/D7/D8 + 默认词表
+  自动生效 + `analyzeWhitelist` 命中数/告警。dev **158 passed**；`npm run test:fuzz`（5000×80）全绿
+  （UVM 走显式 `isWhitelisted`，不受影响）。lint / format / build / release 全绿。
+
+**没做什么（边界）：**
+
+- **GUI 仅手验**：白名单编辑器属 DOM 层，沿用既有约定不写 DOM 单测（SettingsTab 无单测基建），
+  留 `tests/user_tests/04-白名单结构标题.md`（已更新为 0.4.0 实测样例）手验。
+- **未碰 M5/M6**：按路径选模板、双层开关、frontmatter `ON` 强制、删模板确认、清除编号命令均未动。
+  当前仍全局单模板（「默认」），白名单随该模板生效。
+- **C3（升 topLevel 孤儿前缀）** 仍缓（留 M6 清除编号兜底）；UVM 约束未放开（白名单匹配未纳入随机
+  序列覆盖，属后续可扩展项）。
+- **D2 尾随空白**：命中标题会和普通编号一样被 trim 尾随空白（既有行为），非白名单新引入。
+
+**下一步：**
+
+- 推进 **M5**：路径规则系统（`PathRuleStore`，`/` 根规则 + 具体度解析 + GUI 表格 + 路径补全）、
+  开关两层化（启用插件 vs 全局自动编号）、frontmatter `ON` 文件级强制、手动命令绕过开关、删模板
+  「知情确认 + 安全降级」对话框。届时白名单随**路径专属模板**整体覆盖（引擎已就绪，只差选模板那层）。
+- 可选打磨：把白名单匹配纳入 UVM 随机序列覆盖（放开一条约束）；评估方案 B（状态化剥离）彻底解 C3。
+
+**验证方式：**
+
+- `cd obsidian-auto-headings && npm test`（158 passed）；`npm run lint`、`npm run format:check` 全绿。
+- 动了引擎：`npm run test:fuzz`（5000×80）全绿。
+- `npm run release` 重新生成 `release/`（main.js/manifest.json/styles.css/zip 均 0.4.0）。
+- 手验白名单：把 `tests/user_tests/04-白名单结构标题.md` 的代码块贴进启用插件的 Vault，停顿后看
+  目录/参考文献/摘要等不编号；在设置面板模板编辑面板底部增删条目、切换匹配方式看实时命中预览。
+
 ## 2026-06-29 — 升版 0.3.19：Layer 2 集成测试（main.ts 触发层 / 防抖 / 单事务 / 开关门控）
 
 **交接人：** 分支 `claude/obsidian-auto-headings-next-sr4w3p`

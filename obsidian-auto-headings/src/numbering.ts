@@ -110,10 +110,48 @@ export interface LevelFormat {
 	inherit: boolean;
 }
 
-/** 白名单条目（匹配逻辑在 Milestone 4 实现，这里仅承载数据）。 */
+/**
+ * 白名单条目：由**词语** `text` 与**匹配方式** `match` 组成。
+ * - `exact`（全部匹配）：归一化后与条目完全相等，仅豁免该标题自身。
+ * - `partial`（部分匹配）：归一化后包含条目子串，仅豁免该标题自身。
+ * - `subtree`（子树匹配）：归一化后与条目完全相等的标题为根，连同其整棵子树一并豁免。
+ *
+ * 命中判定与子树范围计算见 {@link computeWhitelistExemptions}（Milestone 4）。
+ */
 export interface WhitelistEntry {
 	text: string;
 	match: "exact" | "partial" | "subtree";
+}
+
+/**
+ * 默认模板预填充的白名单词表（Milestone 4，见 spec.md §3.7）：覆盖常见的结构性 / 非内容标题，
+ * 中英各一组，默认均为「全部匹配」（最不具破坏性，只豁免恰好同名的那一行）。
+ * 因匹配大小写不敏感，`References` ≡ `references`。用户可在编辑面板中增删、或改为部分 / 子树。
+ *
+ * 用函数返回**新数组**，避免被 {@link DEFAULT_TEMPLATE} 与其拷贝共享同一引用而被意外改动。
+ */
+export function DEFAULT_WHITELIST(): WhitelistEntry[] {
+	const words = [
+		// 目录          附录         附图       附表
+		"目录",
+		"Contents",
+		"附录",
+		"Appendix",
+		"附图",
+		"Figures",
+		"附表",
+		"Tables",
+		// 参考文献      致谢                摘要        索引
+		"参考文献",
+		"References",
+		"致谢",
+		"Acknowledgements",
+		"摘要",
+		"Abstract",
+		"索引",
+		"Index",
+	];
+	return words.map((text) => ({ text, match: "exact" }));
 }
 
 /** 一个具名模板：为 H1–H6 各级定义显示格式，并附带白名单、跳级占位策略与起始编号层级。 */
@@ -200,11 +238,7 @@ export const DEFAULT_TEMPLATE: Template = {
 			inherit: true,
 		},
 	},
-	whitelist: [
-		{ text: "目录", match: "exact" },
-		{ text: "附录", match: "exact" },
-		{ text: "参考文献", match: "exact" },
-	],
+	whitelist: DEFAULT_WHITELIST(),
 	skipFill: DEFAULT_SKIP_FILL,
 	topLevel: DEFAULT_TOP_LEVEL,
 	ancestorNumeral: DEFAULT_ANCESTOR_NUMERAL,
@@ -718,6 +752,171 @@ function stripHeadingPrefix(
 	return stripPrefix(heading.rawText, level, template, options).replace(/\s+$/, "");
 }
 
+// ============================================================================
+// 白名单匹配（Milestone 4）
+//
+// 命中白名单的标题不写编号前缀、不占计数器槽位（既不累加也不归零、不跳号）。比较前对标题文本与条目
+// 词语应用同一套**归一化**（见 {@link normalizeForWhitelist}），归一化**仅用于判定，绝不改写文件**。
+// 三种匹配方式（exact/partial/subtree）的命中与「取豁免范围最大者」的并集解析见
+// {@link computeWhitelistExemptions}。
+// ============================================================================
+
+/**
+ * 去除行内 Markdown 标记，仅用于白名单归一化（见 {@link normalizeForWhitelist}）。
+ * - 链接 / 图片 `[文字](url)` / `![alt](url)` → 还原为「文字」/「alt」。
+ * - 强调 / 代码标记 `*`、`_`、`` ` `` 直接删除（`**目录**`、`_目录_`、`` `目录` `` 均归一为「目录」）。
+ */
+function stripInlineMarkdown(s: string): string {
+	return s.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*_`]/g, "");
+}
+
+/**
+ * 白名单命中判定前对文本的**归一化**（见 spec.md §3.7）。**仅用于命中判定，绝不改写写入文件的内容。**
+ *
+ * 步骤（标题文本须先由调用方剥离编号前缀，见 {@link computeWhitelistExemptions}）：
+ * 1. 去除行内 Markdown 标记（`**` / `*` / `_` / `` ` `` 与链接）。
+ * 2. Unicode **NFKC** 归一（折叠全角 / 半角等价字符，如全角空格 U+3000 → 普通空格）。
+ * 3. 双侧 `trim()` 并将内部连续空白折叠为单个空格。
+ * 4. 拉丁字母统一转小写（使「Appendix」≡「appendix」）。
+ *
+ * 如此 `## **目录**`、含全角空格的标题、`## APPENDIX` 都能稳定命中条目「目录」/「Appendix」。
+ */
+export function normalizeForWhitelist(text: string): string {
+	let s = stripInlineMarkdown(text);
+	s = s.normalize("NFKC");
+	s = s.trim().replace(/\s+/g, " ");
+	return s.toLowerCase();
+}
+
+/**
+ * 计算一篇文档里应被白名单**豁免**（不写前缀、不占计数器槽位）的标题集合。
+ *
+ * 对每个标题：先用 {@link stripPrefix} 剥离本模板写入的旧编号前缀（豁免即去号，见 testplan D7），
+ * 再 {@link normalizeForWhitelist} 归一，与各条目（同样归一）逐一比对：
+ * - `exact`：归一后**完全相等** → 豁免该标题自身。
+ * - `partial`：归一后**包含**条目子串 → 豁免该标题自身。
+ * - `subtree`：归一后**完全相等** → 以该标题为根，连同其后所有**层级更深**的标题（遇与根**同级或
+ *   更高级**的标题即终止）整体豁免。
+ *
+ * **多条目命中取并集**（`子树 > 全部 = 部分`）：被任一条目命中即豁免；命中它的条目中只要有一条是
+ * `subtree`（以它为根精确命中），就连同整棵子树一并豁免。空条目（归一后为空）忽略。
+ *
+ * @returns 应被豁免的 {@link Heading} 引用集合（供 {@link numberHeadings} 的 `isWhitelisted` 判定）。
+ */
+export function computeWhitelistExemptions(
+	headings: Heading[],
+	template: Template,
+	options: Pick<NumberOptions, "strippablePrefixes" | "strippableSuffixes"> = {},
+): Set<Heading> {
+	const exempt = new Set<Heading>();
+	const entries = template.whitelist
+		.map((e) => ({ norm: normalizeForWhitelist(e.text), match: e.match }))
+		.filter((e) => e.norm.length > 0);
+	if (entries.length === 0) {
+		return exempt;
+	}
+
+	// 预归一化每个标题（先剥前缀，使身上带旧编号的标题也能命中）。
+	const normed = headings.map((h) =>
+		normalizeForWhitelist(stripPrefix(h.rawText, h.level, template, options)),
+	);
+
+	for (let i = 0; i < headings.length; i++) {
+		const nh = normed[i];
+		let selfMatch = false;
+		let subtreeMatch = false;
+		for (const e of entries) {
+			const hit = e.match === "partial" ? nh.includes(e.norm) : nh === e.norm;
+			if (!hit) {
+				continue;
+			}
+			if (e.match === "subtree") {
+				subtreeMatch = true;
+			} else {
+				selfMatch = true;
+			}
+		}
+		if (subtreeMatch) {
+			// 子树：根 + 其下所有更深层级标题，遇同级 / 更高级终止。
+			exempt.add(headings[i]);
+			const rootLevel = headings[i].level;
+			for (let j = i + 1; j < headings.length; j++) {
+				if (headings[j].level <= rootLevel) {
+					break;
+				}
+				exempt.add(headings[j]);
+			}
+		} else if (selfMatch) {
+			exempt.add(headings[i]);
+		}
+	}
+	return exempt;
+}
+
+/** {@link analyzeWhitelist} 中单个白名单条目的命中信息（供设置面板角标与 ⚠ 告警）。 */
+export interface WhitelistEntryHit {
+	/** 该条目独立命中（作为根 / 自身）的标题数。 */
+	count: number;
+	/**
+	 * 该条目为 `exact` / `partial`、且其命中的某个标题**下面还有子标题**——此时仅豁免标题自身、
+	 * 子标题会错挂到上一已编号祖先（见 spec.md §3.7 / testplan D5），应改用「子树」。触发面板 ⚠ 提示。
+	 */
+	warnHasChildren: boolean;
+}
+
+/** {@link analyzeWhitelist} 的结果：用于设置面板的实时命中预览与逐条角标 / 告警。 */
+export interface WhitelistPreview {
+	/** 全部被豁免的标题（并集，按文档出现顺序），用于「当前文件将豁免 N 个标题：…」。 */
+	exempted: Heading[];
+	/** 与 `template.whitelist` **下标对齐**的逐条命中信息。 */
+	perEntry: WhitelistEntryHit[];
+}
+
+/**
+ * 针对**当前活动文件**分析白名单命中情况，供设置面板实时预览（命中数 + 标题清单）与逐条角标 / ⚠ 告警。
+ *
+ * - `exempted`：实际被豁免的标题并集（与 {@link computeWhitelistExemptions} 一致），按出现顺序。
+ * - `perEntry[i]`：第 i 条白名单条目独立命中的标题数，以及「自身被全部 / 部分豁免却含子标题」的告警。
+ */
+export function analyzeWhitelist(
+	headings: Heading[],
+	template: Template,
+	options: Pick<NumberOptions, "strippablePrefixes" | "strippableSuffixes"> = {},
+): WhitelistPreview {
+	const normedHeadings = headings.map((h) =>
+		normalizeForWhitelist(stripPrefix(h.rawText, h.level, template, options)),
+	);
+	const hasChildren = (i: number): boolean =>
+		i + 1 < headings.length && headings[i + 1].level > headings[i].level;
+
+	const perEntry: WhitelistEntryHit[] = template.whitelist.map((entry) => {
+		const norm = normalizeForWhitelist(entry.text);
+		let count = 0;
+		let warnHasChildren = false;
+		if (norm.length === 0) {
+			return { count, warnHasChildren };
+		}
+		for (let i = 0; i < headings.length; i++) {
+			const hit =
+				entry.match === "partial"
+					? normedHeadings[i].includes(norm)
+					: normedHeadings[i] === norm;
+			if (!hit) {
+				continue;
+			}
+			count++;
+			if (entry.match !== "subtree" && hasChildren(i)) {
+				warnHasChildren = true;
+			}
+		}
+		return { count, warnHasChildren };
+	});
+
+	const exemptSet = computeWhitelistExemptions(headings, template, options);
+	const exempted = headings.filter((h) => exemptSet.has(h));
+	return { exempted, perEntry };
+}
+
 /** 重新编号后的单个标题。 */
 export interface NumberedHeading {
 	/** 标题级别 1–6。 */
@@ -736,8 +935,10 @@ export interface NumberedHeading {
 export interface NumberOptions {
 	/**
 	 * 判断某标题是否命中白名单。命中者不写前缀、不占计数器槽位（不累加、不归零、不跳号）。
-	 * 完整的白名单匹配（exact/partial/subtree 与优先级）在 Milestone 4 实现；本里程碑
-	 * 通过该回调注入，以便单元测试验证「不占槽位」的计数行为。默认无白名单。
+	 *
+	 * **缺省**（不传该回调）时，{@link numberHeadings} 会依据 `template.whitelist` **自动**计算豁免集合
+	 * （含 exact/partial/subtree 三种匹配与「取豁免范围最大者」的并集，见 {@link computeWhitelistExemptions}）。
+	 * 显式传入该回调则**覆盖**模板白名单（用于单元测试注入或自定义判定）。
 	 */
 	isWhitelisted?: (heading: Heading) => boolean;
 	/**
@@ -768,7 +969,17 @@ export function numberHeadings(
 	options: NumberOptions = {},
 ): NumberedHeading[] {
 	const counter = new HeadingCounter();
-	const isWhitelisted = options.isWhitelisted ?? (() => false);
+	// 白名单判定：显式回调优先（用于单测注入 / 自定义）；否则由模板白名单自动计算豁免集合
+	// （含三种匹配方式与子树范围，见 {@link computeWhitelistExemptions}）。无白名单时恒不豁免。
+	let isWhitelisted: (heading: Heading) => boolean;
+	if (options.isWhitelisted) {
+		isWhitelisted = options.isWhitelisted;
+	} else if (template.whitelist.length > 0) {
+		const exempt = computeWhitelistExemptions(headings, template, options);
+		isWhitelisted = (heading) => exempt.has(heading);
+	} else {
+		isWhitelisted = () => false;
+	}
 	const top = normalizeTopLevel(template.topLevel);
 
 	return headings.map((heading) => {
