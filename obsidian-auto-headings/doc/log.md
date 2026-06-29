@@ -31,6 +31,43 @@
 
 ---
 
+## 2026-06-29 0.6.5 编号区间 + 中英双语 + 路径 GUI 打磨 + 危险区折叠（claude/obsidian-auto-headings-polish-gvq9cf）
+
+### 做了什么
+
+完成用户提的 1–4 项打磨需求（第 5 项「保留正文起头数字」按要求仅分析、未动手）：
+
+- **③ 结束编号层级 `bottomLevel`（编号区间下界）** —— `src/numbering.ts`：
+  - 新增 `DEFAULT_BOTTOM_LEVEL=6`、`normalizeBottomLevel`（夹 [1,6]，缺失/非法回退 H6=无下界）；`Template` 加 `bottomLevel` 字段，`DEFAULT_TEMPLATE` 补 6。
+  - `numberHeadings`：把「`level < top` 走非编号分支（bump+循环剥离+不写前缀）」扩展为 `level < top || level > bottom`，对称处理超下界标题（仍作重置边界、剥残留旧前缀）。`previewLevel` 同步加区间守卫。
+  - `src/templates/schema.ts`：`normalizeTemplate` 加 `bottomLevel`；**顺手修 0.6.3 遗留 bug**——`NUMERAL_STYLES` 校验枚举漏了 `lower-roman`/`upper-roman`，导致罗马样式存盘后被打回 arabic，现补全。
+- **④ 中英双语 i18n** —— 新建 `src/i18n.ts`：`Lang`/`LangSetting`、`detectObsidianLang`（读 `localStorage["language"]`，zh 前缀判中文，失败回退 en）、`resolveLang`、`Messages` 接口 + `zh`/`en` 两套形状一致文案、`getMessages`。`settings.ts` 加 `language: LangSetting`（默认 `auto`）。`main.ts`：命令名 onload 取一次语言、Notice 调用时取（即时生效），`loadSettings` 迁移非法 language→auto，新增 `messages()` 访问器。`SettingsTab.ts` 全量接入（`this.t` 访问器 + numeral/match 标签函数），顶部加「语言」下拉（切换即重绘）。
+- **① 路径规则 GUI 打磨** —— `SettingsTab.renderPathRules`/`renderPathRuleRow`：
+  - 列表**可纵向滚动**（`.ah-path-table` max-height 280px + overflow-y，表头 sticky 吸顶）。
+  - **分层路径补全**：每行独立 `<datalist>`，`updatePathDatalist` 按输入里最后一个 `/` 取「基目录」、只列其**直接子项**（文件夹带尾 `/`、根补 `/`，上限 50），输入逐层展开。
+  - 每行加**「✕ 清空此路径」**按钮（`.ah-input-clear`，只清输入框、不删规则）。
+  - **删除整条规则的 ✕** 由 `<button>` 改 `<span>`（`.ah-path-del` 去掉椭圆按钮背景）。
+- **② 危险区域默认折叠** —— `renderDangerZone`：`dangerExpanded`（默认 `false`），标题带 chevron、可点击展开，折叠时不渲染「清除全库编号」。
+- **⑤ 「2024 年度总结」分析（仅分析）** —— spec.md 新增 §2.4：评估 4 方案，推荐**模板级 opt-in「保留正文起头数字」复用 WJ 标记**（默认关、不影响现有行为），本轮不实现、列入 M7 backlog；testplan §3.1 新增 P1 行登记取舍。
+
+### 没做什么
+
+- 第 ⑤ 项未写任何产品代码（按用户「先分析、不动手」）。
+- bottomLevel 引擎层不强制 `bottom ≥ top`（仅 GUI 下拉强制）；空区间退化为「无层级编号」，无害。
+- i18n 命令名改语言需重载插件才更新（onload 时机所限，面板已注明）；未做命令热重载。
+- UVM explore 脏标题约束、U3 仍按前轮保留，未碰。
+
+### 下一步
+
+- 手验（DOM 层，见 testplan L 类）：语言切换、路径列表滚动/分层补全/清空键、删除键外观、危险区折叠、起始/结束层级下拉联动。
+- 可选：落地 M7「保留正文起头数字」opt-in（spec §2.4 方案 D）。
+
+### 验证方式
+
+`npm test`（216 passed + 1 skipped，新增 numbering bottomLevel 6 例、schema 2 例、i18n 10 例、settings 1 例）、`npm run test:fuzz`（5000×80 全绿）、`npm run lint`、`npm run format:check` 全绿；`npm run build` + `npm run release` 重建 release/。版本 0.6.4→**0.6.5**（package/manifest/versions/lock + manifest/package 描述改为「中英双语」）。
+
+---
+
 ## 2026-06-29 0.6.4 Word Joiner 写入前缀输出，彻底消除分隔歧义（claude/obsidian-auto-headings-0.6.3-xdeojz）
 
 ### 做了什么

@@ -177,6 +177,17 @@
 	gap: 4px;
 	margin: 0.5em 0;
 	overflow-x: auto;
+	/* 路径过多时可纵向滚动，避免列表撑满整页、看不全（M6）。 */
+	max-height: 280px;
+	overflow-y: auto;
+}
+
+/* 表头在纵向滚动时吸顶，始终可见 */
+.ah-path-head {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	background: var(--background-primary);
 }
 
 .ah-path-row {
@@ -205,6 +216,32 @@
 	box-sizing: border-box;
 }
 
+/* 路径输入单元格：输入框右侧叠一个「清空」小按钮（不删除整条规则） */
+.ah-path-pattern-cell {
+	position: relative;
+	display: flex;
+	align-items: center;
+}
+
+.ah-path-pattern-cell .ah-text-input {
+	padding-right: 1.6em; /* 给右侧清空按钮留位 */
+}
+
+.ah-input-clear {
+	position: absolute;
+	right: 0.4em;
+	color: var(--text-faint);
+	cursor: pointer;
+	font-size: var(--font-ui-smaller);
+	line-height: 1;
+	padding: 0 1px;
+	user-select: none;
+}
+
+.ah-input-clear:hover {
+	color: var(--text-normal);
+}
+
 .ah-path-handle {
 	cursor: grab;
 	color: var(--text-faint);
@@ -217,16 +254,22 @@
 	text-align: center;
 }
 
+/* 删除整条规则的 ✕：纯文本图标，不再被按钮的椭圆背景包住（M6） */
 .ah-path-del {
 	color: var(--text-faint);
 	cursor: pointer;
-	background: transparent;
-	border: none;
-	padding: 0;
+	text-align: center;
+	user-select: none;
+	line-height: 1;
 }
 
 .ah-path-del:hover {
 	color: var(--text-error);
+}
+
+/* 危险区域标题：可点击折叠/展开 */
+.ah-danger-heading .setting-item-name {
+	cursor: pointer;
 }
 
 .ah-path-dragging {

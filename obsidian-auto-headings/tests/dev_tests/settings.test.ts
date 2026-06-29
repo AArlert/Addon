@@ -16,4 +16,8 @@ describe("DEFAULT_SETTINGS", () => {
 		// defaultPathRules 每次返回独立数组，避免共享引用被意外改写。
 		expect(defaultPathRules()).not.toBe(DEFAULT_SETTINGS.pathRules);
 	});
+
+	it("默认语言为 auto（跟随 Obsidian 界面语言）", () => {
+		expect(DEFAULT_SETTINGS.language).toBe("auto");
+	});
 });

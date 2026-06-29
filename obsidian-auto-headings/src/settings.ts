@@ -11,6 +11,7 @@
  * 防抖延迟的滑块 UI 留待 Milestone 6。
  */
 
+import { DEFAULT_LANG_SETTING, type LangSetting } from "./i18n";
 import type { PathRule } from "./pathrules";
 
 export interface AutoHeadingsSettings {
@@ -26,6 +27,11 @@ export interface AutoHeadingsSettings {
 	 * 用户可增删改、可整行删除根规则（见 spec.md §3.8）。解析逻辑见 {@link resolvePathRule}。
 	 */
 	pathRules: PathRule[];
+	/**
+	 * 界面语言（Milestone 6）：`auto` 跟随 Obsidian 界面语言，`zh`/`en` 显式锁定。
+	 * 默认 `auto`。解析见 {@link resolveLang}，文案见 {@link getMessages}。
+	 */
+	language: LangSetting;
 }
 
 /** 防抖延迟的边界与默认值（见 spec.md §3.9）。 */
@@ -38,11 +44,12 @@ export function defaultPathRules(): PathRule[] {
 	return [{ pattern: "/", template: "默认" }];
 }
 
-/** 默认设置：全局自动编号开启、防抖延迟 300 ms、预置 `/`→「默认」根规则。 */
+/** 默认设置：全局自动编号开启、防抖延迟 300 ms、预置 `/`→「默认」根规则、语言自动。 */
 export const DEFAULT_SETTINGS: AutoHeadingsSettings = {
 	autoNumber: true,
 	debounceDelay: DEBOUNCE_DEFAULT,
 	pathRules: defaultPathRules(),
+	language: DEFAULT_LANG_SETTING,
 };
 
 /** 将防抖延迟夹到合法范围 [50, 2000]，非数字回退到默认值。 */

@@ -27,6 +27,9 @@ export type NumeralStyle =
 /** 起始编号层级的默认值：H2（即默认 H1 不编号、作为标题/分节）。 */
 export const DEFAULT_TOP_LEVEL = 2;
 
+/** 结束编号层级的默认值：H6（即默认无下界，最深的 H6 仍参与编号）。 */
+export const DEFAULT_BOTTOM_LEVEL = 6;
+
 /**
  * 「祖先序号渲染」策略：继承前级时，前缀里的**祖先段**（比当前级浅的各段）以何种样式呈现。
  *
@@ -56,6 +59,22 @@ export function normalizeTopLevel(value: unknown): number {
 	const n = Math.round(Number(value));
 	if (!Number.isFinite(n)) {
 		return DEFAULT_TOP_LEVEL;
+	}
+	return Math.min(6, Math.max(1, n));
+}
+
+/**
+ * 规范化「结束编号层级」`bottomLevel`：夹到合法范围 [1, 6]，非数字回退默认 H6（无下界）。
+ * 含义：比 `bottomLevel` 更深的标题不编号、不输出前缀（与浅于 `topLevel` 的标题对称处理，
+ * 仍作为重置边界推进计数器并剥除残留旧前缀）。配合 `topLevel` 即可只编号 H2–H4 这样的区间。
+ *
+ * 注意：本函数不强制 `bottomLevel >= topLevel`——二者各自独立夹取，区间为空（bottom < top）时
+ * 不会有任何层级被编号，属退化但无害情形（GUI 下拉会避免用户配出此状态）。
+ */
+export function normalizeBottomLevel(value: unknown): number {
+	const n = Math.round(Number(value));
+	if (!Number.isFinite(n)) {
+		return DEFAULT_BOTTOM_LEVEL;
 	}
 	return Math.min(6, Math.max(1, n));
 }
@@ -185,6 +204,12 @@ export interface Template {
 	 */
 	topLevel: number;
 	/**
+	 * 结束编号层级（1–6，默认 H6，见 {@link normalizeBottomLevel}）。
+	 * 比它更深的标题不编号、不输出前缀（与浅于 `topLevel` 的标题对称）。配合 `topLevel`
+	 * 即可只编号「H2–H4」这样的区间。默认 H6 = 无下界（历史行为）。**由各模板自行决定**。
+	 */
+	bottomLevel: number;
+	/**
 	 * 「祖先序号渲染」策略（见 {@link AncestorNumeral}）：继承前级时祖先段的样式。
 	 * 默认 `self`（祖先各自套用自身样式，=历史行为）；`arabic` 则祖先一律阿拉伯。
 	 * **由各模板自行决定**。
@@ -248,6 +273,7 @@ export const DEFAULT_TEMPLATE: Template = {
 	whitelist: DEFAULT_WHITELIST(),
 	skipFill: DEFAULT_SKIP_FILL,
 	topLevel: DEFAULT_TOP_LEVEL,
+	bottomLevel: DEFAULT_BOTTOM_LEVEL,
 	ancestorNumeral: DEFAULT_ANCESTOR_NUMERAL,
 };
 
@@ -558,8 +584,9 @@ export function buildPrefix(template: Template, level: number, counter: HeadingC
  */
 export function previewLevel(template: Template, level: number, count = 3): string[] {
 	const top = normalizeTopLevel(template.topLevel);
-	// 低于起始编号层级或越界：不编号，无预览。
-	if (level < top || level < 1 || level > 6) {
+	const bottom = normalizeBottomLevel(template.bottomLevel);
+	// 低于起始编号层级、高于结束编号层级或越界：不编号，无预览。
+	if (level < top || level > bottom || level < 1 || level > 6) {
 		return [];
 	}
 	const counter = new HeadingCounter();
@@ -1081,6 +1108,7 @@ export function numberHeadings(
 		isWhitelisted = () => false;
 	}
 	const top = normalizeTopLevel(template.topLevel);
+	const bottom = normalizeBottomLevel(template.bottomLevel);
 
 	return headings.map((heading) => {
 		const level = heading.level;
@@ -1101,11 +1129,13 @@ export function numberHeadings(
 		// 推进计数器（即便低于 topLevel，也作为重置边界）。
 		counter.bump(level);
 
-		// 低于起始编号层级：不编号，但剥除可能残留的旧编号前缀（C3 修复，见 testplan §C3）。
+		// 低于起始编号层级 **或** 高于结束编号层级：不编号，但剥除可能残留的旧编号前缀
+		// （C3 修复 + bottomLevel 对称处理，见 testplan §C3）。例如把结束层级从 H6 收窄到 H4 后，
+		// 文件里遗留的 H5/H6 旧前缀须被剥净，否则会被当成正文、左侧再叠新前缀。
 		// 采用**循环剥离到定点**（而非单次剥离）修复 U1/C6 bug：标题文本含多层「数字+空格」时，
 		// 单次剥离只去一层，每次触发侵蚀一层（非幂等）；循环直到不再变化，保证单次触发即到定点，
 		// 此后重复触发稳定。WJ 快速路径由 stripPrefix 内部处理（见 WORD_JOINER 注释）。
-		if (level < top) {
+		if (level < top || level > bottom) {
 			let current = heading.rawText;
 			let prev: string;
 			do {
