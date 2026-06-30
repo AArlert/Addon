@@ -164,6 +164,12 @@
 	margin-top: 0.25em;
 }
 
+/* 白名单预览：当前文件实际模板 ≠ 正在编辑模板时的警示 */
+.ah-wl-mismatch {
+	color: var(--text-warning);
+	margin-top: 0.25em;
+}
+
 /* —— 路径规则表格（Milestone 5）—— */
 .ah-path-warn {
 	color: var(--text-warning);

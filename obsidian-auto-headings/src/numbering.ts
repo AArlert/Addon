@@ -612,27 +612,20 @@ function escapeRegExp(s: string): string {
 /**
  * 「标题间隔符」的容差字符类：常见分隔标点 **+ 空白**（空格、Tab、`.`、`、`、`-`、`)` 等）。
  *
- * 用途（见 doc/testplan.md B1/B4/B5）：用户改了模板的「序号间隔符」或「标题间隔符」后，文件里用
- * **旧分隔符**写出的历史前缀已无法用当前模板值精确匹配（旧值不在模板里了）。{@link stripPrefix}
- * 除精确匹配当前分隔符外，再容差匹配这一标点 / 空白集合的连续串，即可剥掉旧前缀、避免新前缀叠
- * 加（用户报告的「序号样式改中文 → 标题间隔符改『、』后得 `一、一 标题`」类 bug）。
+ * **方案 A（0.6.6）后仅供 {@link stripPrefixBroad}（「清除编号」命令）使用**——它独立于 WJ、用全样式
+ * 正则尽力清掉手写 / 历史前缀，故仍需一个容差的「序号→标题」分隔字符集合。常规剥离 {@link stripPrefix}
+ * 已不再用正则（改为纯 WJ 边界），不再依赖本类。
  *
- * **安全边界**：本类**仅含标点与空白**，不含可能属于标题正文的字母 / 数字 / 一般汉字；且容差分支
- * 要求**至少一个**分隔字符（`+`）。前缀仍必须以序号 token 起头（空前缀时），故**不以序号起头的
- * 标题完全不受影响**，误伤面与历史一致（仅「以序号 + 分隔符起头」的标题会被当前缀覆盖，这与
- * spec.md §2.3「对编号前缀的手动编辑属预期行为」一致）。
+ * **安全边界**：本类**仅含标点与空白**，不含可能属于标题正文的字母 / 数字 / 一般汉字；且要求**至少一个**
+ * 分隔字符（`+`）。「清除编号」是用户主动操作，其对「以序号 + 分隔符起头」标题的误伤已被接受（spec §3.10）。
  */
 const TITLE_SEPARATOR_CLASS = "[ \\t.,;:、，。．·：；)）】」』>\\]-]";
 
 /**
  * 「序号间隔符」（父子序号段之间，如 `1.1` 的 `.`）的容差字符类：在 {@link TITLE_SEPARATOR_CLASS}
- * 基础上**刻意排除空格 / Tab**。
+ * 基础上**刻意排除空格 / Tab**（空格几乎总是「序号→标题」的标题间隔符，而非段间分隔符）。
  *
- * 为什么排除空格（见 doc/testplan.md「2024 折中」）：空格几乎总是「序号→标题」的**标题间隔符**，
- * 而非段间的序号间隔符。若容差地把空格也当段间分隔符，`1 2024 标题` 会被解析成「`1`、`2024` 两段
- * 父级序号」而把用户正文里的 `2024` 一并吃掉。把空格从段间容差里剔除后，`1 2024 标题` 只会被识别为
- * 「一层前缀 `1 ` + 正文 `2024 标题`」，从而**只剥一层、保住用户写在序号后面的数字**。
- * 真正以空格为序号间隔符的罕见配置仍由 {@link tolerantSeparator} 的「精确匹配当前值」分支兜住。
+ * **方案 A（0.6.6）后仅供 {@link stripPrefixBroad} 使用**（同 {@link TITLE_SEPARATOR_CLASS}）。
  */
 const NUMBER_SEPARATOR_CLASS = "[.,;:、，。．·：；)）】」』>\\]-]";
 
@@ -640,41 +633,11 @@ const NUMBER_SEPARATOR_CLASS = "[.,;:、，。．·：；)）】」』>\\]-]";
  * Word Joiner（U+2060）：零宽不换行字符，在导出 / 复制时不可见。
  *
  * {@link buildPrefix} 在每个前缀末尾追加该字符作为**精确结束标记**，无歧义地区分「前缀」与「正文」：
- * `1 ⁠标题` 中 WJ 不可见，但 {@link stripPrefix} / {@link stripPrefixBroad} 通过快速路径精确截断，
- * 彻底消除「2024 折中」与 C3 的历史歧义。旧格式（不含 WJ）仍由正则路径向后兼容。
+ * `1 ⁠标题` 中 WJ 不可见。**方案 A（0.6.6）起，WJ 是 {@link stripPrefix} 唯一的剥离依据**——含 WJ 才剥、
+ * 剥到标记之后；不含 WJ 一律视为正文。彻底消除「2024 年度总结」首次被吃等历史歧义（见 spec §2.4）。
+ * 「清除编号」命令的 {@link stripPrefixBroad} 仍用全样式正则（独立于 WJ）处理手写 / 历史前缀。
  */
 export const WORD_JOINER = "⁠";
-
-/**
- * 构造「容差分隔符」匹配片段：优先精确匹配当前模板的分隔符 `exact`（含其为空的情形），
- * 否则容差匹配一段给定字符类 `charClass`（≥1 个）。用于剥离用旧分隔符写出的历史前缀。
- *
- * @param charClass 容差字符类——序号间隔符传 {@link NUMBER_SEPARATOR_CLASS}（无空格）、
- *   标题间隔符传 {@link TITLE_SEPARATOR_CLASS}（含空格）。
- */
-function tolerantSeparator(exact: string, charClass: string): string {
-	return `(?:${escapeRegExp(exact)}|${charClass}+)`;
-}
-
-/**
- * 构造「容差**段间**分隔符」匹配片段：在 {@link tolerantSeparator} 基础上，当 `titleSep`
- * 恰好落在 `charClass` 字符类里时，为容差分支额外加否定前瞻 `(?!titleSep)`。
- *
- * **解决 U2/B10 bug**：`titleSep` 为「数字间隔符类」标点（如 `。`）时，若容差分支照常匹配，
- * 则 `(?:inner_sep)*last` 会把「标题文本起始的 `2024`」误作第二段段间分隔符后的序号吞掉
- * （`1。2024 总结` → `总结`，破坏 E5b 承诺）。加否定前瞻后，当前位置以 `titleSep` 开头时
- * 容差分支拒绝匹配，于是段间正则在 `titleSep` 处停止，让标题间隔符路径接管——`2024 总结` 完整保留。
- *
- * 若 `titleSep` 不在 `charClass` 字符类里（如默认空格不在 {@link NUMBER_SEPARATOR_CLASS}），
- * 则退化为与 {@link tolerantSeparator} 等价（无性能损失）。
- */
-function tolerantInnerSeparator(numberSep: string, charClass: string, titleSep: string): string {
-	if (titleSep && new RegExp(charClass).test(titleSep)) {
-		const escaped = escapeRegExp(titleSep);
-		return `(?:${escapeRegExp(numberSep)}|(?!${escaped})${charClass}+)`;
-	}
-	return tolerantSeparator(numberSep, charClass);
-}
 
 /**
  * 把一组前缀 / 后缀字面量拼成「能匹配其中任一者」的正则片段（按长度降序，使较长字面量优先匹配）。
@@ -726,139 +689,34 @@ const ALL_NUMERAL_STYLES: NumeralStyle[] = [
 ];
 
 /**
- * **低误伤风险、可「无条件」参与剥离的样式**：阿拉伯 / 中文 / 带圈。
+ * 剥离标题文本中由本插件写入的编号前缀（**方案 A，0.6.6：纯 Word Joiner 边界**）。
  *
- * 这些样式即便当前模板已不再使用，也极少与真实标题的开头冲突（汉字数字/带圈数字开头且
- * 紧跟间隔符的标题罕见，与长期存在的「`2024 总结` 会被 arabic 剥」一致）。因此始终纳入，
- * 以便清理**样式被改走后残留的旧前缀**——例如把某级中文改回阿拉伯后，文件里遗留的
- * 「1.二.1」必须仍能被剥离，否则会被当作正文、左侧再叠一层新前缀（用户报告的
- * 「1.2.1 1.二.1」叠加 bug）。字母样式（lower/upper-alpha）误伤面大（会吃掉「API 设计」这类
- * 以英文词开头的标题），故**不**无条件纳入，仅在模板实际使用时才参与（见 {@link lastSegmentToken}）。
- */
-const ALWAYS_STRIPPABLE_STYLES: NumeralStyle[] = ["arabic", "cjk", "circled"];
-
-/** 把一组序号样式（外加 fill 占位字面量）拼成「能匹配其中任一样式的单段 token」的正则片段。 */
-function unionToken(styles: Set<NumeralStyle>, skipFill: SkipFill): string {
-	const parts = ALL_NUMERAL_STYLES.filter((s) => styles.has(s)).map(numeralTokenPattern);
-	if (skipFill.mode === "fill" && skipFill.placeholder.length) {
-		parts.push(escapeRegExp(skipFill.placeholder));
-	}
-	return `(?:${parts.join("|")})`;
-}
-
-/**
- * **内层（父级）段**的剥离 token：纳入**全部**序号样式。
+ * 核心契约：{@link buildPrefix} 写出的每个前缀**末尾恒带 Word Joiner**（U+2060，0.6.4 起）。WJ 是
+ * **唯一可信的「这是插件写的前缀」边界标记**：
+ * - **含 WJ** → 精确剥到**第一个 WJ 之后**（O(n)、无正则、与样式/分隔符/前后缀全无关），其后内容一律
+ *   视为正文保留。多段前缀（`1.1.1 ⁠`）整体在 WJ 前，一次剥净。
+ * - **不含 WJ** → 整段视为**纯用户文本、原样返回**，不再用正则去「猜」哪段像编号。
  *
- * 父级段在生成时各自套用其所在级别的样式（见 {@link buildPrefix}），而这些样式可能在之后被
- * 用户改动，残留的旧前缀必须仍可剥离。对父级段放宽到全样式是**安全**的——父级段恒被序号
- * 间隔符夹在中间，真实标题极少形如「词.词.…」；而**末段**由 {@link lastSegmentToken} 收口
- * （不含模板未使用的字母样式），故「API 设计」等以英文词开头的标题不会被误剥。
- */
-function innerSegmentToken(skipFill: SkipFill): string {
-	return unionToken(new Set<NumeralStyle>(ALL_NUMERAL_STYLES), skipFill);
-}
-
-/**
- * **末段（本级、最深段）**的剥离 token。
+ * 这样从根上消除了历史歧义：用户写的 `## 2024 年度总结`（无 WJ）**首次**触发也**不会**把 `2024` 当
+ * 前缀吃掉——它没有 WJ，就是正文（结果 `## 1 ⁠2024 年度总结`，幂等保留）。代价（属预期，见 spec §2.3/§2.4）：
+ * - 0.6.4 之前写入的、**无 WJ** 的历史前缀不再被本函数识别（现已无线上用户，不适配历史）。
+ * - 用户**手写**的伪编号（如 `## 1. 标题`）不再被「吸收」，而是叠加在其上——若要清掉，用「清除编号」
+ *   命令（{@link stripPrefixBroad}，全样式正则、独立于 WJ，专门处理手写 / 历史前缀）。
  *
- * 字母样式（lower/upper-alpha）**仅在模板实际使用时**纳入：否则会把「API 设计」「TODO 列表」
- * 这类以英文词开头的标题误当作字母序号剥掉。arabic/cjk/带圈误伤风险低，**始终**纳入（见
- * {@link ALWAYS_STRIPPABLE_STYLES}），以便清理「样式被改走后残留的旧前缀」恰好落在末段的情形。
- */
-function lastSegmentToken(template: Template, skipFill: SkipFill): string {
-	const styles = new Set<NumeralStyle>(ALWAYS_STRIPPABLE_STYLES);
-	for (const lvl of [
-		template.levels.h1,
-		template.levels.h2,
-		template.levels.h3,
-		template.levels.h4,
-		template.levels.h5,
-		template.levels.h6,
-	]) {
-		// 字母 / 罗马数字样式误伤面大（会吃掉「API 设计」「VI. 章节」等英文开头标题），
-		// 故仅在模板实际使用时纳入（见 spec §3.10）。
-		if (
-			lvl.numeral === "lower-alpha" ||
-			lvl.numeral === "upper-alpha" ||
-			lvl.numeral === "lower-roman" ||
-			lvl.numeral === "upper-roman"
-		) {
-			styles.add(lvl.numeral);
-		}
-	}
-	return unionToken(styles, skipFill);
-}
-
-/**
- * 剥离标题文本中由本模板生成的编号前缀。
- *
- * 前缀按「父级段 + 本级段」两类分别匹配，而非死扣某一级的当前样式：
- * - **父级（内层）段**用 {@link innerSegmentToken}（全部样式）匹配——父级在生成时各自套用其级别
- *   样式（见 {@link buildPrefix}），且样式可能在之后被改动而残留旧前缀；父级段恒被间隔符夹住，
- *   放宽到全样式不会误伤正文。
- * - **本级（末）段**用 {@link lastSegmentToken}（arabic/cjk/带圈始终纳入，字母样式仅在模板在用时纳入）
- *   收口，避免把「API 设计」这类以英文词开头的标题误当作字母序号剥掉。
- *
- * 这样既能干净移除本模板当前样式写出的前缀（含 `1.a.①` 这类父级套各自样式的形态），也能移除
- * **样式变更前残留的旧前缀**——例如把某级从「中文」改回「阿拉伯」后、模板里已无任何 cjk 级时，
- * 旧的 `1.二.1` 仍能被识别剥离，不会被当成正文而在其左侧再叠一层新前缀（即用户报告的
- * 「1.2.1 1.二.1」叠加 bug 的根因）。
- *
- * **只剥一层**（不再循环重剥）：本函数只移除**最左侧的一个完整前缀单元**，其后的内容一律视为正文
- * 保留。这实现了用户约定的「2024 折中」——`1 2024 标题`（用户在插件写的 `1 ` 后面又补回自己的
- * `2024`）只会被剥成 `2024 标题` 再编号回 `1 2024 标题`，而**不会**把 `2024` 也当成第二段序号吃掉。
- * 配合 {@link NUMBER_SEPARATOR_CLASS} 把空格排除出「段间分隔符」，`1 2024` 不再被误解析为两段序号。
- * 多段前缀（如 `1.1.1 `，段间是 `.`）仍会作为**一个单元**被一次剥净。
- *
- * 已知歧义（与 spec §2.3 一致，属预期取舍）：当标题本身恰以「序号样式字符 + 标题间隔符」开头
- * （如 `2024 总结`、`三 概述`）时，**首次**编号会把它当作前缀剥掉（得 `1 总结`）。用户若想保留，
- * 在序号后重新写上即可——`1 2024 总结` 会被稳定保留（见上「只剥一层」）。
+ * `level` / `template` / `options` 三参仅为调用点签名兼容保留（WJ 剥离与模板无关），故标 `_` 前缀。
  */
 export function stripPrefix(
 	text: string,
-	level: number,
-	template: Template,
-	options: Pick<NumberOptions, "strippablePrefixes" | "strippableSuffixes"> = {},
+	_level?: number,
+	_template?: Template,
+	_options: Pick<NumberOptions, "strippablePrefixes" | "strippableSuffixes"> = {},
 ): string {
-	// WJ 快速路径：若标题已含 Word Joiner 标记（buildPrefix 在 0.6.4 起始终写入），
-	// 精确剥离到标记处（包含标记本身），O(n) 无正则开销；旧格式由下方正则路径向后兼容。
+	// 方案 A：含 WJ → 精确剥到标记之后；不含 WJ → 视为纯用户文本，原样返回。
 	const wjIdx = text.indexOf(WORD_JOINER);
 	if (wjIdx >= 0) {
 		return text.slice(wjIdx + 1);
 	}
-
-	const fmt = getLevelFormat(template, level);
-	if (!fmt) {
-		return text;
-	}
-
-	const skipFill = normalizeSkipFill(template.skipFill);
-	const inner = innerSegmentToken(skipFill);
-	const last = lastSegmentToken(template, skipFill);
-	// 段间序号间隔符用 tolerantInnerSeparator（而非 tolerantSeparator），当 titleSep 字符落在
-	// NUMBER_SEPARATOR_CLASS 里时加否定前瞻，防止 `。` 等标题间隔符被当作段间分隔符消费，
-	// 从而修复 U2/B10 bug（titleSep 为「数字间隔符类」标点时 E5b 承诺失效，见 testplan §3.2 B10）。
-	const sep = tolerantInnerSeparator(
-		fmt.numberSeparator,
-		NUMBER_SEPARATOR_CLASS,
-		fmt.titleSeparator,
-	);
-	const titleSep = tolerantSeparator(fmt.titleSeparator, TITLE_SEPARATOR_CLASS);
-	// 与 buildPrefix 的结构对应：继承前级时前缀形如 `父段{sep}…{sep}父段{sep}本段`。
-	// **父级段恒用可选 `(?:…)*` 匹配，不看当前 `inherit`**：历史前缀可能是在 `inherit=true` 时写的
-	// （带父级段），即便现在改成了 `inherit=false`，那些父级段也必须能被一并剥净，否则会残留叠加
-	// （`inherit` 翻转的状态转移）。`*` 取零段即覆盖「本就没有父级段」的 inherit=false 情形。
-	const numberPattern = `(?:${inner}${sep})*${last}`;
-
-	// 与 buildPrefix 对应：前缀 + 完整序号 + 后缀 + 标题间隔符。后缀（如「章」）须一并剥离。
-	// 方案 A：前缀 / 后缀用「当前值 + 空串 + 注入并集」的候选集合匹配（见 {@link affixAlternation}），
-	// 而非死扣当前值——这样「无前缀时编的号」与「旧前缀值」都能被识别剥净（testplan B2/B3）。
-	const prefixAlt = affixAlternation([fmt.prefix, "", ...(options.strippablePrefixes ?? [])]);
-	const suffixAlt = affixAlternation([fmt.suffix, "", ...(options.strippableSuffixes ?? [])]);
-	const pattern = new RegExp(`^${prefixAlt}${numberPattern}${suffixAlt}${titleSep}`);
-
-	// 只剥一层：移除最左侧的一个完整前缀单元即返回，其后内容一律视为正文保留（见上「2024 折中」）。
-	return text.replace(pattern, "");
+	return text;
 }
 
 /**
@@ -1197,6 +1055,34 @@ export function stripPrefixBroad(
 	const suffixAlt = affixAlternation([...knownSuffixes, ""]);
 	const titleSep = `${TITLE_SEPARATOR_CLASS}+`;
 	const pattern = new RegExp(`^${prefixAlt}${numberPattern}${suffixAlt}${titleSep}`);
+	return rawText.replace(pattern, "").replace(/\s+$/, "");
+}
+
+/**
+ * 剥离一段标题文本里**外来 / 手写**的编号前缀——用于 0.6.6「清理非本插件的标题编号」命令
+ * （见 `cleanup.ts` 与 spec §3.10）。**调用方须保证传入的是不含 WJ 的标题**（含 WJ = 本插件写的，
+ * 由命令层跳过、不动）。
+ *
+ * 比 {@link stripPrefixBroad} 覆盖**更多手写惯例**，独立于任何模板：
+ * - 全部序号样式（arabic / cjk / circled / 字母 / 罗马）+ 多段（`1.2.3`）；
+ * - 可选 `第`、可选成对括号（`(1)` / `（一）` / `[1]` / `【1】` / `〔1〕` / `《1》`）；
+ * - 可选中文量词单位（`第3章` / `一节` / `2条`…）；
+ * - 之后须跟分隔标点 / 空白（{@link TITLE_SEPARATOR_CLASS}），故「纯数字无分隔」的真实标题（`100`）不被误剥。
+ *
+ * **已知风险（与「清除编号」同源、属预期，spec §3.10）：** 以序号样字（含字母）开头紧跟分隔符的真实
+ * 标题可能被误剥（`API 设计` → `设计`、`2024 总结` → `总结`）。本命令是**用户主动**的一次性清理，已接受。
+ */
+export function stripForeignNumbering(rawText: string): string {
+	const allToken = `(?:${ALL_NUMERAL_STYLES.map(numeralTokenPattern).join("|")})`;
+	const sep = `${NUMBER_SEPARATOR_CLASS}+`;
+	const numberPattern = `(?:${allToken}${sep})*${allToken}`;
+	const cjkPrefix = "(?:第)?";
+	const open = "[(（\\[【〔《〈]?";
+	const cjkUnit = "(?:[章节條条讲講篇部回卷课課])?";
+	// 序号之后**必须**跟「成对右括号 或 分隔标点 / 空白」中的至少一个（故纯数字无分隔的真实标题
+	// 如 `100`、`三` 不被误剥）。右括号兼作分隔（`（一）背景` 中 `）` 即边界，无需空格）。
+	const trail = `(?:[)）\\]】〕》〉]|${TITLE_SEPARATOR_CLASS})+`;
+	const pattern = new RegExp(`^${cjkPrefix}${open}${numberPattern}${cjkUnit}${trail}`);
 	return rawText.replace(pattern, "").replace(/\s+$/, "");
 }
 

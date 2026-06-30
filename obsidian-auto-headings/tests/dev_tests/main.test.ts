@@ -380,12 +380,66 @@ describe("strippableAffixes：把全模板前后缀并集接进重排（方案 A
 		expect(suffixes).toContain("");
 	});
 
-	it("当前模板无前缀，但别的模板用「第」→ 旧「第1 」前缀仍被剥净（不叠加）", () => {
-		// 活动模板 = 默认（空前缀）；并集里含「第」（来自另一模板）→ 经重排接线后可剥。
+	it("方案A（0.6.6）：插件写出的「第1 ⁠」前缀（带 WJ）切到无前缀模板后被剥净（WJ 定界，与并集无关）", () => {
+		// 0.6.6 起常规重排只认 WJ 边界：`## 第1 ⁠标题` 是插件写过的（带 WJ）→ WJ 精确剥 → 重排成 `## 1 ⁠标题`。
+		// （strippableAffixes 并集现仅用于「清除编号」命令，不再参与常规重排。）
 		const { p } = makePlugin({ allTemplates: [DEFAULT_TEMPLATE, prefixTemplate()] });
-		const ed = new FakeEditor("## 第1 标题");
+		const ed = new FakeEditor(`## 第1 ${WORD_JOINER}标题`);
 		p.scheduleRenumber(ed, fileInfo("a.md"));
 		vi.advanceTimersByTime(300);
 		expect(ed.getValue()).toBe(`## 1 ${WORD_JOINER}标题`);
+	});
+});
+
+describe("子树白名单经自动触发路径生效（WL-int：引擎+触发接线正确，问题在模板解析口径）", () => {
+	function subtreeTpl(): Template {
+		return { ...DEFAULT_TEMPLATE, whitelist: [{ text: "附录", match: "subtree" }] };
+	}
+
+	it("当前文件解析到的模板带『附录』子树白名单 → 附录及其子标题不被编号", () => {
+		const { p, setTemplate, setActiveView } = makePlugin();
+		setTemplate(subtreeTpl()); // 「默认」模板带子树白名单（file a.md 经 / 根规则解析到它）
+		const ed = new FakeEditor(
+			["## 甲", "## 乙", "## 附录", "### 命名", "### 你你你主任"].join("\n"),
+		);
+		setActiveView({ editor: ed, file: { path: "a.md" } });
+		p.scheduleRenumber(ed, fileInfo("a.md"));
+		vi.advanceTimersByTime(300);
+		expect(ed.getValue()).toBe(
+			[
+				`## 1 ${WORD_JOINER}甲`,
+				`## 2 ${WORD_JOINER}乙`,
+				"## 附录", // 子树根：豁免、不占槽位
+				"### 命名", // 子树子标题：一并豁免
+				"### 你你你主任",
+			].join("\n"),
+		);
+		// 幂等：再次触发不变。
+		const after = ed.getValue();
+		p.scheduleRenumber(ed, fileInfo("a.md"));
+		vi.advanceTimersByTime(300);
+		expect(ed.getValue()).toBe(after);
+	});
+
+	it("机制说明：文件解析到的模板**没有**该白名单 → 标题被编号（预览口径不一致的根因）", () => {
+		// a.md 经 / 根规则解析到「默认」；把「默认」设成**无白名单**的干净模板（去掉内置结构词表，
+		// 并用一个不在默认词表里的词「方法」作子树根），另有个带白名单的「学术」但 a.md 用不到它。
+		const cleanDefault: Template = { ...DEFAULT_TEMPLATE, whitelist: [] };
+		const academic: Template = {
+			...DEFAULT_TEMPLATE,
+			name: "学术",
+			whitelist: [{ text: "方法", match: "subtree" }],
+		};
+		const { p, setTemplate, setActiveView } = makePlugin({
+			allTemplates: [cleanDefault, academic],
+			pathRules: [{ pattern: "/", template: "默认" }],
+		});
+		setTemplate(cleanDefault); // 「默认」= 无白名单
+		const ed = new FakeEditor(["## 方法", "### 步骤"].join("\n"));
+		setActiveView({ editor: ed, file: { path: "a.md" } });
+		p.scheduleRenumber(ed, fileInfo("a.md"));
+		vi.advanceTimersByTime(300);
+		// 用「默认」编号 → 都被编号（即便在「学术」面板里预览会显示豁免，故面板需提示模板不一致）。
+		expect(ed.getValue()).toBe(`## 1 ${WORD_JOINER}方法\n### 1.1 ${WORD_JOINER}步骤`);
 	});
 });

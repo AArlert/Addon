@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clearNumberingContent } from "../../src/cleanup";
+import { clearForeignNumberingContent, clearNumberingContent } from "../../src/cleanup";
 import { renumberContent, DEFAULT_TEMPLATE, WORD_JOINER } from "../../src/numbering";
 
 describe("clearNumberingContent（M6 H 类场景）", () => {
@@ -108,10 +108,59 @@ describe("C3 修复：调高 topLevel 后降出范围的标题旧前缀被剥除
 	});
 
 	it("C3: 非编号文本的 H1 不受调高 topLevel 影响", () => {
-		// H1 没有编号前缀，不应被误剥
+		// H1 没有编号前缀，不应被误剥（方案A：无 WJ 一律不剥，更不会误伤）。
 		const tplH2 = { ...DEFAULT_TEMPLATE, topLevel: 2 };
-		const result = renumberContent("# 纯裸标题\n## 1 节", tplH2);
-		// H1 本就没有前缀，剥离后仍是 `纯裸标题`
+		const result = renumberContent("# 纯裸标题\n## 节", tplH2);
 		expect(result).toBe(`# 纯裸标题\n## 1 ${WORD_JOINER}节`);
+	});
+});
+
+describe("clearForeignNumberingContent（0.6.6「清理非本插件的标题编号」）", () => {
+	it("剥手写阿拉伯多级编号（无 WJ）", () => {
+		const input = "## 1 概述\n### 1.1 背景\n## 2.3 细节";
+		expect(clearForeignNumberingContent(input)).toBe("## 概述\n### 背景\n## 细节");
+	});
+
+	it("覆盖更多手写惯例：括号 / 第…章 / 顿号 / 方括号 / 右括号 / 点", () => {
+		expect(clearForeignNumberingContent("## (1) 概述")).toBe("## 概述");
+		expect(clearForeignNumberingContent("## （一）背景")).toBe("## 背景");
+		expect(clearForeignNumberingContent("## 第3章 引言")).toBe("## 引言");
+		expect(clearForeignNumberingContent("## 第一章 绪论")).toBe("## 绪论");
+		expect(clearForeignNumberingContent("## 一、要点")).toBe("## 要点");
+		expect(clearForeignNumberingContent("## [1] 参考")).toBe("## 参考");
+		expect(clearForeignNumberingContent("## 1) 列表")).toBe("## 列表");
+		expect(clearForeignNumberingContent("## 1. 小节")).toBe("## 小节");
+		expect(clearForeignNumberingContent("## ① 带圈")).toBe("## 带圈");
+	});
+
+	it("**保留**本插件写的（带 WJ）编号，不动", () => {
+		const input = `## 1 ${WORD_JOINER}概述\n### 1.1 ${WORD_JOINER}背景`;
+		// 含 WJ → 视为本插件编号 → 原样保留。
+		expect(clearForeignNumberingContent(input)).toBe(input);
+	});
+
+	it("混合：剥手写、保留带 WJ 的", () => {
+		const input = `## 1 ${WORD_JOINER}插件编号\n### 2.3 手写编号`;
+		expect(clearForeignNumberingContent(input)).toBe(
+			`## 1 ${WORD_JOINER}插件编号\n### 手写编号`,
+		);
+	});
+
+	it("无分隔符的纯序号字样标题不被误剥（如「100」「三」末尾无分隔符）", () => {
+		expect(clearForeignNumberingContent("## 100")).toBe("## 100");
+		expect(clearForeignNumberingContent("## 三")).toBe("## 三");
+	});
+
+	it("无标题 / 无外来编号时原样返回", () => {
+		expect(clearForeignNumberingContent("正文一行\n另一行")).toBe("正文一行\n另一行");
+		expect(clearForeignNumberingContent("## 裸标题\n### 另一个")).toBe("## 裸标题\n### 另一个");
+	});
+
+	it("清理后交给插件编号：得到干净的带 WJ 编号（典型工作流）", () => {
+		const input = "## 1 旧概述\n### 1.1 旧背景";
+		const cleaned = clearForeignNumberingContent(input);
+		expect(cleaned).toBe("## 旧概述\n### 旧背景");
+		const numbered = renumberContent(cleaned, DEFAULT_TEMPLATE);
+		expect(numbered).toBe(`## 1 ${WORD_JOINER}旧概述\n### 1.1 ${WORD_JOINER}旧背景`);
 	});
 });

@@ -143,6 +143,9 @@ export interface Messages {
 	wlPreviewNoFile: string;
 	wlPreviewNone: string;
 	wlPreviewSome: (count: number, titles: string) => string;
+	/** 当前文件实际使用的模板 ≠ 正在编辑的模板时的警示（预览仅为假设）。 */
+	wlPreviewOtherTemplate: (appliedName: string) => string;
+	wlPreviewNoTemplate: string;
 
 	// —— 危险区域 ——
 	dangerHeading: string;
@@ -169,6 +172,7 @@ export interface Messages {
 	cmdToggle: string;
 	cmdRenumber: string;
 	cmdClear: string;
+	cmdClearForeign: string;
 
 	// —— Notice（main.ts）——
 	noticeEnabled: string;
@@ -179,6 +183,8 @@ export interface Messages {
 	noticeNoRule: string;
 	noticeRenumbered: string;
 	noticeNoChange: string;
+	noticeNoForeign: string;
+	noticeForeignCleared: string;
 }
 
 /** 简体中文文案。 */
@@ -282,6 +288,10 @@ const zh: Messages = {
 	wlPreviewNoFile: "（打开一个含标题的 Markdown 文件以预览本白名单的命中）",
 	wlPreviewNone: "当前文件无标题被本白名单豁免。",
 	wlPreviewSome: (count, titles) => `当前文件将豁免 ${count} 个标题：${titles}`,
+	wlPreviewOtherTemplate: (appliedName) =>
+		`⚠ 当前文件按路径规则实际使用模板「${appliedName}」，不是正在编辑的这个模板；下方预览仅为「假如本文件用此模板」的假设，实际编号以「${appliedName}」的白名单为准。`,
+	wlPreviewNoTemplate:
+		"⚠ 当前文件未命中任何路径规则（无可用模板），不会被自动编号；下方预览仅为假设。",
 
 	dangerHeading: "危险区域",
 	dangerExpandHint: "（点击展开）",
@@ -306,6 +316,7 @@ const zh: Messages = {
 	cmdToggle: "切换全局自动编号（全局）",
 	cmdRenumber: "立即重新编号（当前文件）",
 	cmdClear: "清除当前文件编号",
+	cmdClearForeign: "清理非本插件的标题编号（当前文件）",
 
 	noticeEnabled: "已启用全局自动编号",
 	noticeDisabled: "已禁用全局自动编号",
@@ -315,6 +326,8 @@ const zh: Messages = {
 	noticeNoRule: "当前文件未匹配任何路径规则，无法编号",
 	noticeRenumbered: "已重新编号",
 	noticeNoChange: "无需改动",
+	noticeNoForeign: "当前文件无可清理的外来编号",
+	noticeForeignCleared: "已清理非本插件的标题编号",
 };
 
 /** English copy. */
@@ -422,6 +435,10 @@ const en: Messages = {
 	wlPreviewNone: "No heading in the current file is exempted by this whitelist.",
 	wlPreviewSome: (count, titles) =>
 		`This whitelist will exempt ${count} heading(s) in the current file: ${titles}`,
+	wlPreviewOtherTemplate: (appliedName) =>
+		`⚠ By the path rules, the current file actually uses template "${appliedName}", not the one you're editing. The preview below is hypothetical ("if this file used this template"); actual numbering follows "${appliedName}"'s whitelist.`,
+	wlPreviewNoTemplate:
+		"⚠ The current file matches no path rule (no template applies), so it won't be auto-numbered. The preview below is hypothetical.",
 
 	dangerHeading: "Danger zone",
 	dangerExpandHint: "(click to expand)",
@@ -446,6 +463,7 @@ const en: Messages = {
 	cmdToggle: "Toggle global auto-numbering (global)",
 	cmdRenumber: "Renumber now (current file)",
 	cmdClear: "Clear numbering in current file",
+	cmdClearForeign: "Clear non-plugin heading numbering (current file)",
 
 	noticeEnabled: "Global auto-numbering enabled",
 	noticeDisabled: "Global auto-numbering disabled",
@@ -455,6 +473,8 @@ const en: Messages = {
 	noticeNoRule: "The current file matches no path rule; cannot number it",
 	noticeRenumbered: "Renumbered",
 	noticeNoChange: "No change needed",
+	noticeNoForeign: "No foreign (non-plugin) numbering to clear in the current file",
+	noticeForeignCleared: "Cleared non-plugin heading numbering",
 };
 
 /** 取某语言的文案表。 */
