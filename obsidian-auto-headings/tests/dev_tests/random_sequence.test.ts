@@ -42,14 +42,10 @@ describe("约束随机序列（UVM 风格状态转移压测）", () => {
 	 * U3（字母样式吞英文起头标题）属设计取舍（见 testplan §3.2），explore 模式通过
 	 * `EXPLORE_GEN` 内部约束规避，不影响本测试。
 	 */
-	it(
-		`[explore] ${RUNS}×${OPS}：幂等性记分板（脏输入全覆盖回归）`,
-		() => {
-			const cov = new Coverage();
-			for (let i = 0; i < RUNS; i++) {
-				runSequence(BASE_SEED + i, OPS, cov, EXPLORE_GEN);
-			}
-		},
-		30000,
-	);
+	it(`[explore] ${RUNS}×${OPS}：幂等性记分板（脏输入全覆盖回归）`, () => {
+		const cov = new Coverage();
+		for (let i = 0; i < RUNS; i++) {
+			runSequence(BASE_SEED + i, OPS, cov, EXPLORE_GEN);
+		}
+	}, 30000);
 });

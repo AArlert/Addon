@@ -36,8 +36,15 @@
 
 - `doc/log.md` 顶部追加记录，包含：日期 / 交接人（分支名）、做了什么、没做什么、下一步、验证方式。
 - `doc/status.jsonl` 首行下方插入一行概括（JSON，含 `date` / `version` / `summary`），并更新首行。
+  **首行保持精简**（版本 + 一句话现状 + 下一步），细节下沉 `log.md`，别把根因 / seed / 测试数堆进首行。
 
 > 各 Addon 的 `doc/log.md` 顶部可能有该 Addon 专属强制规则，优先级高于本文件，必须先读。
+
+**省 token 读盘纪律（重要）**：接手时**用 `grep` / `rg` 定位**所需信息，不要整读大文件。
+- `log.md` 只读**最新一块**；更早历史已被归档脚本滚动进 `log-archive.md`，需要时再按需翻。
+- `testplan.md` 不必整读：有 `npm run docs` 的 Addon，跑它即可得「状态计数 + 全部非 ✅ 待办行」摘要。
+- 源码大文件优先 `grep` 关键字 / 函数名定位，不要从头读到尾（具体哪些文件见各 Addon 的 `log.md` 强制规则）。
+  有 `npm run codemap` 的 Addon，**先查 `doc/codemap.md`**（自动生成的符号地图：全局「符号→文件:行号」索引 + 大文件大纲带意图）拿到函数名与位置，再去 grep / 读那一处。
 
 ### 3.1 每个 Addon 的文档结构
 
@@ -45,11 +52,16 @@
 |------|------|--------|
 | `<addon>/README.md` | 简介：功能 + Milestone 概览 + 指向 `doc/` 的链接 | 功能 / 里程碑变化时 |
 | `<addon>/doc/spec.md` | 详细规格 / 设计决策 / Roadmap | 涉及规格改动时 |
-| `<addon>/doc/log.md` | 详细交接日志（倒序） | 每周期追加 |
+| `<addon>/doc/log.md` | 详细交接日志（倒序，**仅保留最新 N 周期块**） | 每周期追加新块，收尾跑归档脚本 |
+| `<addon>/doc/log-archive.md` | 由 `log.md` 滚动出去的历史周期块（倒序） | 归档脚本自动维护，**平时不读** |
 | `<addon>/doc/status.jsonl` | 状态索引（首行总览 + 每周期一句话概括，倒序） | 每周期更新 |
 | `<addon>/doc/testplan.md` | 场景真值表：操作序列 + 预期结果 + 状态（✅/❌/⚠️/🔲）+ 已知 bug | 加功能 / 修 bug 时先改这里 |
 
 `testplan.md` 与 `tests/dev_tests/`（自动化单测）、`tests/user_tests/`（实测样例）一一对应。
+
+> **文档维护脚本化**：有 `scripts/docs.mjs`（`npm run docs`）的 Addon，由它负责机械整理——
+> 归档 `log.md` 旧周期块、打印 `testplan` 摘要、校验 `status.jsonl`。Agent 只写语义内容（新周期块、
+> 状态概括），**机械的挪动交给脚本**。没有该脚本的 Addon 才手动维护。
 
 ## 4. 通用开发流程
 
@@ -59,12 +71,21 @@
 4. 质量门槛全绿：`npm test`、`npm run lint`、`npm run format:check`。有 `npm run test:fuzz` 的，动核心逻辑后额外压一遍；修好已登记 bug 后放开对应的随机测试约束。
 5. 有产物 / 发布步骤的（见其 `doc/`），重新生成并随提交入库。
 6. 回填 `testplan.md`：场景行状态 🔲/❌ → ✅，更新已知 bug 汇总。
-7. 更新 `doc/log.md` 与 `doc/status.jsonl`（见 §3）。
-8. 提交。
+7. **bump 版本号**：有 `npm run bump` 的 Addon 跑它一键同步（见 §4.1）；没有的手动同步。
+8. 更新 `doc/log.md`（顶部追加新周期块）与 `doc/status.jsonl`（见 §3）。
+9. **跑文档维护脚本**：有 `npm run docs` 的 Addon，写完新周期块后跑它，把旧块归档进 `log-archive.md`
+   （顺带打印 testplan 摘要做收尾自检）。**先写后挪**：脚本只搬旧块，不动你刚写的新块。
+10. 提交。
+
+> 一句话流程（有脚本的 Addon）：改代码+测试 → `npm run bump` → 写 `log.md` 新块 + `status.jsonl`
+> → `npm run docs` → `npm run release` → 质量门槛 → 提交。
 
 ### 4.1 版本号
 
 格式 `0.M.*`：`M` = 当前 Milestone，`*` 在该里程碑内持续递增至满意再进入下一个。**凡实质改动（含纯文档）都要 bump `*`**，同步 `manifest.json` / `package.json` / `versions.json` 及 lockfile、`release/` 副本。
+
+> **一键 bump**：有 `scripts/bump.mjs` 的 Addon 直接 `npm run bump`（打磨递增 `*`）/ `npm run bump minor`
+> （进新 Milestone，`*` 归零）/ `npm run bump 0.7.0`（显式），它会一次性同步上述全部文件，免去手改 4~5 处。
 
 **例外**：纯仓库级改动（本 `CLAUDE.md`、CI、钩子等）不升任何 Addon 版本号。
 
@@ -87,4 +108,6 @@
 
 ## 7. 开发环境
 
-SessionStart 钩子（`.claude/hooks/session-start.sh`）在远程会话启动时自动安装各 Addon 的依赖。**新增带工具链的 Addon 时记得加进该脚本。**
+SessionStart 钩子（`.claude/hooks/session-start.sh`）在远程会话启动时自动安装各 Addon 的依赖，并启用共享 git 钩子（`git config core.hooksPath .githooks`）。**新增带工具链的 Addon 时记得加进该脚本。**
+
+**pre-commit 文档守卫**（`.githooks/pre-commit`）：提交时对每个「自带 `scripts/docs.mjs` 且本次有暂存改动」的 Addon 跑 `npm run docs --check`——若 `doc/log.md` 周期块超过保留上限（写了新块却忘了归档），**拦下提交**。修复：在该 Addon 跑 `npm run docs` 归档后 `git add` 重提；确需跳过用 `git commit --no-verify`。本地克隆首次需手动 `git config core.hooksPath .githooks`（远程会话由 SessionStart 自动设）。
