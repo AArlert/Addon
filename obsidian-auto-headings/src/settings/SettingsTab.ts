@@ -159,6 +159,17 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 					}),
 			);
 
+		// —— Backlink 同步开关（M7，opt-in，默认关，见 spec.md §3.12）——
+		new Setting(containerEl)
+			.setName(t.updateBacklinksName)
+			.setDesc(t.updateBacklinksDesc)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.updateBacklinks).onChange(async (value) => {
+					this.plugin.settings.updateBacklinks = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
 		// —— 路径规则区（Milestone 5）——
 		this.renderPathRules(containerEl);
 

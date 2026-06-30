@@ -47,6 +47,7 @@ interface PluginInternals {
 		debounceDelay: number;
 		pathRules: PathRule[];
 		language: "auto" | "zh" | "en";
+		updateBacklinks: boolean;
 	};
 	templateStore: {
 		getDefault(): Template;
@@ -93,17 +94,43 @@ function makePlugin(
 		delay?: number;
 		allTemplates?: Template[];
 		pathRules?: PathRule[];
+		updateBacklinks?: boolean;
+		/** 假「其它文件」库：path → 内容，供 Backlink 同步反查 / 写回。 */
+		vaultFiles?: Record<string, string>;
 	} = {},
 ) {
 	const tplBox = { current: DEFAULT_TEMPLATE };
 	let activeView: { editor: FakeEditor; file?: { path: string } } | null = null;
 	const templates = () => opts.allTemplates ?? [tplBox.current];
+	// 假 vault：getAbstractFileByPath 返回同形 TFile（path+basename），process 读改写回内存。
+	const vaultFiles = new Map<string, string>(Object.entries(opts.vaultFiles ?? {}));
+	const fileBasename = (p: string) => (p.split("/").pop() ?? p).replace(/\.md$/i, "");
+	const vault = {
+		getAbstractFileByPath: (p: string) =>
+			vaultFiles.has(p) ? { path: p, basename: fileBasename(p) } : null,
+		process: async (file: { path: string }, fn: (c: string) => string) => {
+			const next = fn(vaultFiles.get(file.path) ?? "");
+			vaultFiles.set(file.path, next);
+			return next;
+		},
+	};
+	// 假 metadataCache：getBacklinksForFile 返回 { data: Map(sourcePath → []) }，
+	// 列出除目标外的全部假文件（rewrite 对不含匹配链接者自然 no-op）。
+	const metadataCache = {
+		getBacklinksForFile: (target: { path: string }) => ({
+			data: new Map(
+				[...vaultFiles.keys()].filter((p) => p !== target.path).map((p) => [p, []]),
+			),
+		}),
+	};
 	const app = {
 		workspace: {
 			getActiveViewOfType: (
 				_cls: unknown,
 			): { editor: FakeEditor; file?: { path: string } } | null => activeView,
 		},
+		vault,
+		metadataCache,
 	};
 	const PluginCtor = AutoHeadingsPlugin as unknown as new (
 		app: unknown,
@@ -117,6 +144,7 @@ function makePlugin(
 		pathRules: opts.pathRules ?? [...defaultRules],
 		// 锁定中文，使 Notice 断言（本测试用中文文案）稳定，不受运行环境 Obsidian 语言探测影响。
 		language: "zh",
+		updateBacklinks: opts.updateBacklinks ?? false,
 	};
 	p.templateStore = {
 		getDefault: () => tplBox.current,
@@ -128,6 +156,7 @@ function makePlugin(
 	};
 	return {
 		p,
+		vaultFiles,
 		setTemplate: (t: Template) => {
 			tplBox.current = t;
 		},
@@ -135,6 +164,11 @@ function makePlugin(
 			activeView = v;
 		},
 	};
+}
+
+/** 排空微任务队列（Backlink 同步是 fire-and-forget 的异步 vault.process，需 flush 后断言）。 */
+async function flushPromises(): Promise<void> {
+	for (let i = 0; i < 10; i++) await Promise.resolve();
 }
 
 const fileInfo = (path: string) => ({ file: { path } });
@@ -388,6 +422,63 @@ describe("strippableAffixes：把全模板前后缀并集接进重排（方案 A
 		p.scheduleRenumber(ed, fileInfo("a.md"));
 		vi.advanceTimersByTime(300);
 		expect(ed.getValue()).toBe(`## 1 ${WORD_JOINER}标题`);
+	});
+});
+
+describe("Backlink 同步（M7，opt-in，见 spec.md §3.12）", () => {
+	it("编号改写标题后更新别处指向它的内部链接（updateBacklinks 开）", async () => {
+		const { p, vaultFiles } = makePlugin({
+			updateBacklinks: true,
+			vaultFiles: { "b.md": "见 [[a#简介]] 一节。" },
+		});
+		const ed = new FakeEditor("## 简介");
+		p.runImmediateRenumber(ed, fileInfo("a.md"));
+		await flushPromises();
+		// 目标文件正常编号。
+		expect(ed.getValue()).toBe(`## 1 ${WORD_JOINER}简介`);
+		// 引用文件的链接锚点被更新（剥 WJ、干净）。
+		expect(vaultFiles.get("b.md")).toBe("见 [[a#1 简介]] 一节。");
+		expect(Notice.messages).toContain("已更新 1 处内部链接");
+	});
+
+	it("默认关（updateBacklinks 关）：不触碰引用文件", async () => {
+		const { p, vaultFiles } = makePlugin({
+			updateBacklinks: false,
+			vaultFiles: { "b.md": "见 [[a#简介]] 一节。" },
+		});
+		const ed = new FakeEditor("## 简介");
+		p.runImmediateRenumber(ed, fileInfo("a.md"));
+		await flushPromises();
+		expect(ed.getValue()).toBe(`## 1 ${WORD_JOINER}简介`);
+		expect(vaultFiles.get("b.md")).toBe("见 [[a#简介]] 一节。"); // 未改
+		expect(Notice.messages).not.toContain("已更新 1 处内部链接");
+	});
+
+	it("清除当前文件编号也同步链接（带前缀 → 裸标题）", async () => {
+		const { p, vaultFiles } = makePlugin({
+			updateBacklinks: true,
+			vaultFiles: { "b.md": `跳到 [[a#1 简介]]。` },
+		});
+		const ed = new FakeEditor(`## 1 ${WORD_JOINER}简介`);
+		(p as unknown as { runClearNumbering(e: unknown, c: unknown): void }).runClearNumbering(
+			ed,
+			fileInfo("a.md"),
+		);
+		await flushPromises();
+		expect(ed.getValue()).toBe("## 简介");
+		expect(vaultFiles.get("b.md")).toBe("跳到 [[a#简介]]。");
+	});
+
+	it("标题文本未变（幂等触发）：不产生链接改动、不弹 Notice", async () => {
+		const { p, vaultFiles } = makePlugin({
+			updateBacklinks: true,
+			vaultFiles: { "b.md": "见 [[a#1 简介]]。" },
+		});
+		const ed = new FakeEditor(`## 1 ${WORD_JOINER}简介`); // 已是正确编号
+		p.runImmediateRenumber(ed, fileInfo("a.md"));
+		await flushPromises();
+		expect(vaultFiles.get("b.md")).toBe("见 [[a#1 简介]]。");
+		expect(Notice.messages).not.toContain("已更新 1 处内部链接");
 	});
 });
 
