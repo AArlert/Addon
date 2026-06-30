@@ -107,4 +107,6 @@
 
 ## 7. 开发环境
 
-SessionStart 钩子（`.claude/hooks/session-start.sh`）在远程会话启动时自动安装各 Addon 的依赖。**新增带工具链的 Addon 时记得加进该脚本。**
+SessionStart 钩子（`.claude/hooks/session-start.sh`）在远程会话启动时自动安装各 Addon 的依赖，并启用共享 git 钩子（`git config core.hooksPath .githooks`）。**新增带工具链的 Addon 时记得加进该脚本。**
+
+**pre-commit 文档守卫**（`.githooks/pre-commit`）：提交时对每个「自带 `scripts/docs.mjs` 且本次有暂存改动」的 Addon 跑 `npm run docs --check`——若 `doc/log.md` 周期块超过保留上限（写了新块却忘了归档），**拦下提交**。修复：在该 Addon 跑 `npm run docs` 归档后 `git add` 重提；确需跳过用 `git commit --no-verify`。本地克隆首次需手动 `git config core.hooksPath .githooks`（远程会话由 SessionStart 自动设）。

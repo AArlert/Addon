@@ -85,9 +85,12 @@ function archiveLog() {
 		return;
 	}
 	if (checkOnly) {
-		console.log(
-			`[log] --check：有 ${toArchive.length} 个旧周期块可归档（保留 ${KEEP}）。未改动。`,
+		// 钩子守卫：log.md 超过保留数即视为「忘了归档」，以非零退出拦下提交。
+		console.error(
+			`[log] --check 失败：log.md 有 ${dated.length} 个周期块，超过保留数 ${KEEP}。` +
+				`请先跑 \`npm run docs\` 归档旧块，再重新提交。`,
 		);
+		process.exitCode = 1;
 		return;
 	}
 
@@ -195,5 +198,7 @@ function checkStatus() {
 }
 
 archiveLog();
-reportTestplan();
+// --check 是钩子/CI 的安静守卫模式：只跑日志守卫 + status 校验，不刷 testplan 摘要
+//（摘要是给 Agent 手动看的，跑 `npm run docs` 才打印）。
+if (!checkOnly) reportTestplan();
 checkStatus();

@@ -58,6 +58,9 @@
 - **本周期归档**：log.md 由 37 块滚动到「最新 3 周期块 + 3 常青块」，旧 31 块进 `log-archive.md`。
 - **`status.jsonl` 首行减肥**：从 ~200 token 的密集 blob 砍成「版本 + 一句话现状 + 下一步」，细节下沉 log。
 - **CLAUDE.md（根）§4 / §4.1 + 本文件强制规则**：写入新的脚本化周期流程（写新块 → `bump` → `docs` → `release`）与「grep 优先、禁整读大文件」纪律。
+- **pre-commit 文档守卫**（`.githooks/pre-commit`）：提交时对每个「有 `scripts/docs.mjs` 且本次有暂存改动」的 Addon 跑 `docs --check`，
+  log.md 周期块超标（写了新块忘归档）就**拦下提交**。配套把 `docs.mjs --check` 改为「超标非零退出 + 安静模式」（不再刷 testplan 摘要）。
+  `.claude/hooks/session-start.sh` 自动 `git config core.hooksPath .githooks`（本地/远程均启用）；CLAUDE.md §7 记录。
 
 ### 没做什么
 
@@ -68,13 +71,13 @@
 
 ### 下一步
 
-- 实测验证脚本化流程在下个真实开发周期顺手（写块 → bump → docs → release）。
-- 可选：把 `npm run docs --check` 接入质量门槛 / CI，防止 log.md 再次膨胀。
+- 实测验证脚本化流程在下个真实开发周期顺手（写块 → bump → docs → release），以及 pre-commit 守卫在真实提交时是否顺手。
 
 ### 验证方式
 
 - `npm run bump` 后五处版本号一致（已验 0.6.8）。
-- `npm run docs` 后 log.md 仅剩 3 周期块 + 常青块，log-archive.md 含 31 旧块且倒序；重复跑幂等（无新归档）。
+- `npm run docs` 后 log.md 仅剩 3 周期块 + 常青块，log-archive.md 含 32 旧块且倒序；重复跑幂等（无新归档）。
+- 守卫退出码：`docs --check`（3 块）exit 0 静默；`docs --check --keep 2`（模拟超标）exit 1 报错。`.githooks/pre-commit` 手动执行触发 obsidian-auto-headings 守卫并通过。
 - `npm test` / `npm run lint` / `npm run format:check` / `npm run release` 全绿。
 
 ---

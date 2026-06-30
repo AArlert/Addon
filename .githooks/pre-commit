@@ -1,0 +1,42 @@
+#!/bin/bash
+# pre-commit 钩子：防止各 Addon 的 doc/log.md 再次膨胀。
+#
+# 对每个「自带 scripts/docs.mjs 且本次提交有暂存改动」的 Addon，跑 `node scripts/docs.mjs --check`：
+# 若 log.md 的周期块数超过保留上限（即写了新块却忘了归档），守卫以非零退出，拦下本次提交。
+# 修复办法：在该 Addon 里跑 `npm run docs` 归档旧块，`git add` 后重新提交。
+#
+# 启用方式（已由 .claude/hooks/session-start.sh 在远程会话自动设置）：
+#   git config core.hooksPath .githooks
+#
+# 跳过本次检查（仅在确有必要时）：git commit --no-verify
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# 本次暂存的文件列表（相对仓库根）。
+staged="$(git diff --cached --name-only --diff-filter=ACMR)"
+[ -z "$staged" ] && exit 0
+
+failed=0
+# 扫描所有自带文档维护脚本的 Addon。
+while IFS= read -r script; do
+	addon_dir="$(dirname "$(dirname "$script")")"           # <addon>/scripts/docs.mjs → <addon>
+	addon_rel="${addon_dir#"$REPO_ROOT"/}"
+
+	# 仅当本次提交触及该 Addon 时才检查，避免拦下无关提交。
+	if ! grep -q "^${addon_rel}/" <<<"$staged"; then
+		continue
+	fi
+
+	echo "==> 文档守卫：$addon_rel"
+	if ! (cd "$addon_dir" && node scripts/docs.mjs --check); then
+		failed=1
+	fi
+done < <(find "$REPO_ROOT" -path '*/scripts/docs.mjs' -not -path '*/node_modules/*')
+
+if [ "$failed" -ne 0 ]; then
+	echo ""
+	echo "✗ 提交被拦下：上面的文档守卫未通过。请按提示修复后重试（或 git commit --no-verify 跳过）。"
+	exit 1
+fi
+exit 0
