@@ -69,6 +69,13 @@
  * - **覆盖率新 bin**：whitelist-exact/partial/subtree、subtree-带子标题、bottomLevel-narrowed（默认 500×60 闭合）。
  * - explore 模式（新维度叠加脏编辑）撞出 **U4**（标题正文以**空白起头**时连续触发非幂等：首次保留前导空格、
  *   再次被 parser `[ \t]+` 收拢，见 testplan §3.2）——登记未修。
+ *
+ * ## 0.7.1 升级：纳入 Backlink 往返不变量（M7）
+ *
+ * 编号改写标题文本 → 指向旧标题的内部链接需同步（见 spec.md §3.12）。新增第三块记分板
+ * {@link World.checkBacklinkRoundTrip}：对每次触发的「编号前→后」文本，断言 `src/backlinks.ts` 的
+ * **改名表幂等** + **链接重写往返一致**（指向旧标题的 `[[Target#旧]]` 重写后恰指向同一标题的新名）。
+ * 两种 oracle 都跑（纯属文本性质），在整个随机编号空间里压测 backlink 核心；新增覆盖率 bin `backlink-rename`。
  */
 
 import {
@@ -81,7 +88,12 @@ import {
 	type Template,
 	type WhitelistEntry,
 } from "../../../src/numbering";
-import { parseHeadings } from "../../../src/parser";
+import { parseHeadings, type Heading } from "../../../src/parser";
+import {
+	computeHeadingRenames,
+	linkAnchor,
+	rewriteBacklinksInContent,
+} from "../../../src/backlinks";
 import { Rng } from "./rng";
 
 /** 文档的一行：标题（级别 + 裸标题文本）或原样行（正文 / 代码块栅栏 / 块内行）。 */
@@ -290,6 +302,8 @@ export class Coverage {
 	prefixMutated = false;
 	/** 曾在「前后缀非空」状态下翻转 inherit（explore，验证 B8）。 */
 	inheritWithAffix = false;
+	/** 曾发生过标题锚点改名（编号改写标题 → Backlink 改名表非空，M7）。 */
+	backlinkRename = false;
 	triggers = 0;
 
 	bumpOp(kind: OpKind): void {
@@ -345,6 +359,7 @@ export class Coverage {
 		if (!this.levelJump) missing.push("level-jump");
 		if (!this.selfEatingTitle) missing.push("self-eating-title");
 		if (!this.inPlaceEdited) missing.push("in-place-edit");
+		if (!this.backlinkRename) missing.push("backlink-rename");
 		return missing;
 	}
 }
@@ -796,11 +811,75 @@ export class World {
 		this.trace.push("— trigger —");
 		this.detectLevelJump();
 		this.detectWhitelistCoverage();
+		// Backlink 改名表 + 链接重写往返不变量（M7，两种 oracle 均跑：纯属 before→after 文本性质）。
+		this.checkBacklinkRoundTrip(before, after);
 		if (this.cfg.oracle === "reference") {
 			this.check();
 		} else {
 			this.checkIdempotent();
 		}
+	}
+
+	/**
+	 * **Backlink 往返记分板**（M7，见 spec.md §3.12）：对本次触发的「编号前 → 编号后」文本，
+	 * 校验 `src/backlinks.ts` 的改名表 + 链接重写自洽：
+	 *
+	 * 1. **改名表幂等**：`computeHeadingRenames(after, after)` 必为空（编号后锚点已稳定，再算无改名）。
+	 * 2. **往返一致**：为每个「唯一旧锚点」标题造一条 `[[Target#旧标题]]` 链接，经 `rewriteBacklinksInContent`
+	 *    重写后，其锚点归一必须等于**该行新标题**的锚点——即「指向旧标题的链接，重写后恰好指向同一标题的新名」。
+	 *
+	 * 它在整个随机编号空间里压测 backlink 核心：任何「改名表算错 / 重写错位 / 漏改 / 误改」都会被逮。
+	 * 重复锚点（歧义）按设计跳过（保守不改），故只在唯一锚点上断言。
+	 */
+	private checkBacklinkRoundTrip(before: string, after: string): void {
+		if (computeHeadingRenames(after, after).length !== 0) {
+			throw new SequenceError(
+				this.seed,
+				this.trace,
+				`Backlink 改名表非幂等：after→after 应为空`,
+			);
+		}
+		const map = new Map(computeHeadingRenames(before, after).map((r) => [r.from, r.to]));
+		const beforeH = parseHeadings(before);
+		const afterByLine = new Map<number, Heading>(
+			parseHeadings(after).map((h) => [h.lineIndex, h]),
+		);
+		// 旧锚点出现次数：重复=歧义（设计上保守不改），只在唯一锚点上断言往返。
+		const oldCount = new Map<string, number>();
+		for (const h of beforeH) {
+			const a = linkAnchor(h.text);
+			if (a) oldCount.set(a, (oldCount.get(a) ?? 0) + 1);
+		}
+		const targetable = beforeH.filter((h) => {
+			const a = linkAnchor(h.text);
+			const nh = afterByLine.get(h.lineIndex);
+			if (!nh) return false;
+			// 新锚点为空（标题被编号吃成空，如 explore 里的「（0.0.1）」）时，computeHeadingRenames 按设计
+			// **不改名**（无法链到空标题，spec §2.3 自食取舍）→ 链接保持旧值不动，故排除出往返断言。
+			const na = linkAnchor(nh.text);
+			// 排除空锚点 / 歧义 / 含链接语法字符（避免造出畸形 synthetic 链接）。
+			return a !== "" && na !== "" && (oldCount.get(a) ?? 0) === 1 && !/[[\]#|]/.test(h.text);
+		});
+		if (targetable.length === 0) return;
+		const synthetic = targetable.map((h) => `[[Target#${h.text}]]`).join("\n");
+		const rewritten = rewriteBacklinksInContent(synthetic, "Target", false, map).content.split(
+			"\n",
+		);
+		targetable.forEach((h, i) => {
+			const newAnchor = linkAnchor((afterByLine.get(h.lineIndex) as Heading).text);
+			const m = rewritten[i].match(/^\[\[Target#(.*)\]\]$/);
+			const got = m ? linkAnchor(m[1]) : "";
+			if (got !== newAnchor) {
+				throw new SequenceError(
+					this.seed,
+					this.trace,
+					`Backlink 往返不一致：旧锚点 ${JSON.stringify(linkAnchor(h.text))} 重写后 ${JSON.stringify(
+						got,
+					)} ≠ 新标题锚点 ${JSON.stringify(newAnchor)}`,
+				);
+			}
+			if (linkAnchor(h.text) !== newAnchor) this.cov.backlinkRename = true;
+		});
 	}
 
 	/** 收集白名单相关覆盖率（匹配方式 / 命中 / 子树带子标题），与真实豁免集合一致。 */

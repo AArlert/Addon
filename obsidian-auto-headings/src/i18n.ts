@@ -61,6 +61,10 @@ export interface Messages {
 	debounceDesc: (min: number, max: number, def: number) => string;
 	resetTooltip: (def: number) => string;
 
+	// —— Backlink 同步 ——
+	updateBacklinksName: string;
+	updateBacklinksDesc: string;
+
 	// —— 路径规则 ——
 	pathRulesHeading: string;
 	pathRulesDesc: string;
@@ -185,6 +189,7 @@ export interface Messages {
 	noticeNoChange: string;
 	noticeNoForeign: string;
 	noticeForeignCleared: string;
+	noticeBacklinksUpdated: (count: number) => string;
 }
 
 /** 简体中文文案。 */
@@ -204,6 +209,10 @@ const zh: Messages = {
 	debounceDesc: (min, max, def) =>
 		`编辑停顿后多少毫秒触发自动编号。范围 ${min}–${max} ms，默认 ${def} ms。`,
 	resetTooltip: (def) => `恢复默认 ${def} ms`,
+
+	updateBacklinksName: "同步内部链接（Backlink）",
+	updateBacklinksDesc:
+		"编号 / 清除改写标题后，自动更新其它文件里指向该标题的内部链接（如 [[文件#标题]]），避免断链。会修改被引用文件，且这些改动不在被改文件的撤销历史内——建议先备份。默认关闭。",
 
 	pathRulesHeading: "路径规则",
 	pathRulesDesc:
@@ -328,6 +337,7 @@ const zh: Messages = {
 	noticeNoChange: "无需改动",
 	noticeNoForeign: "当前文件无可清理的外来编号",
 	noticeForeignCleared: "已清理非本插件的标题编号",
+	noticeBacklinksUpdated: (count) => `已更新 ${count} 处内部链接`,
 };
 
 /** English copy. */
@@ -348,6 +358,10 @@ const en: Messages = {
 	debounceDesc: (min, max, def) =>
 		`How many milliseconds after you stop editing before auto-numbering runs. Range ${min}–${max} ms, default ${def} ms.`,
 	resetTooltip: (def) => `Reset to default ${def} ms`,
+
+	updateBacklinksName: "Sync internal links (backlinks)",
+	updateBacklinksDesc:
+		"When numbering or clearing rewrites a heading, automatically update internal links in other files that point to it (e.g. [[file#heading]]) so they don't break. This modifies the referencing files, and those edits are NOT in their undo history — back up first. Off by default.",
 
 	pathRulesHeading: "Path rules",
 	pathRulesDesc:
@@ -475,6 +489,7 @@ const en: Messages = {
 	noticeNoChange: "No change needed",
 	noticeNoForeign: "No foreign (non-plugin) numbering to clear in the current file",
 	noticeForeignCleared: "Cleared non-plugin heading numbering",
+	noticeBacklinksUpdated: (count) => `Updated ${count} internal link(s)`,
 };
 
 /** 取某语言的文案表。 */

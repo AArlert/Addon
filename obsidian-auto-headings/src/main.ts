@@ -17,6 +17,7 @@ import { getMessages, type Messages, resolveLang } from "./i18n";
 import { readFileSwitch, SWITCH_KEY } from "./frontmatter";
 import { renumberContent, type Template } from "./numbering";
 import { clearForeignNumberingContent, clearNumberingContent } from "./cleanup";
+import { computeHeadingRenames, rewriteBacklinksInContent } from "./backlinks";
 import { parseHeadings, type Heading } from "./parser";
 import { resolvePathRule } from "./pathrules";
 import { TemplateStore } from "./templates/TemplateStore";
@@ -261,7 +262,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 		if (!template) {
 			return;
 		}
-		this.applyRenumber(editor, template);
+		this.applyRenumber(editor, template, view.file);
 	}
 
 	/**
@@ -305,6 +306,8 @@ export default class AutoHeadingsPlugin extends Plugin {
 		}
 		if (changes.length > 0) {
 			editor.transaction({ changes });
+			// Backlink 同步：清除编号也改写了标题文本（去掉前缀），更新别处指向它的内部链接。
+			void this.syncBacklinks(ctx.file, oldContent, newContent);
 		}
 		new Notice(this.messages().noticeCleared);
 	}
@@ -346,6 +349,8 @@ export default class AutoHeadingsPlugin extends Plugin {
 		}
 		if (changes.length > 0) {
 			editor.transaction({ changes });
+			// Backlink 同步：清理外来编号也改写了标题文本，更新别处指向它的内部链接。
+			void this.syncBacklinks(ctx.file, oldContent, newContent);
 		}
 		new Notice(this.messages().noticeForeignCleared);
 	}
@@ -396,6 +401,10 @@ export default class AutoHeadingsPlugin extends Plugin {
 		if (merged.language !== "zh" && merged.language !== "en" && merged.language !== "auto") {
 			merged.language = "auto";
 		}
+		// updateBacklinks 缺失 / 非布尔（含旧版本无此字段）时回退到默认 false。
+		if (typeof merged.updateBacklinks !== "boolean") {
+			merged.updateBacklinks = false;
+		}
 		this.settings = merged as unknown as AutoHeadingsSettings;
 		this.settings.debounceDelay = clampDebounceDelay(this.settings.debounceDelay);
 	}
@@ -434,7 +443,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 			if (!template) {
 				return; // 无可用模板：自动触发静默跳过（不打扰）。
 			}
-			this.applyRenumber(editor, template);
+			this.applyRenumber(editor, template, file);
 		}, this.settings.debounceDelay);
 
 		this.debounceTimers.set(path, timer);
@@ -462,7 +471,7 @@ export default class AutoHeadingsPlugin extends Plugin {
 		}
 
 		const m = this.messages();
-		const changed = this.applyRenumber(editor, template);
+		const changed = this.applyRenumber(editor, template, ctx.file);
 		new Notice(changed ? m.noticeRenumbered : m.noticeNoChange);
 	}
 
@@ -475,9 +484,10 @@ export default class AutoHeadingsPlugin extends Plugin {
 	 * - 仅当内容确有变化时才发起事务，避免无谓的撤销记录与光标抖动。
 	 * - 整文件重写永不增删行，故按行索引逐行比较即可定位变化。
 	 *
+	 * @param target 当前文件（用于 Backlink 同步取反向链接 / basename）；缺省则不同步链接。
 	 * @returns 是否实际写入了改动。
 	 */
-	private applyRenumber(editor: Editor, template: Template): boolean {
+	private applyRenumber(editor: Editor, template: Template, target?: LinkTarget | null): boolean {
 		const oldContent = editor.getValue();
 
 		const { prefixes, suffixes } = this.strippableAffixes();
@@ -507,6 +517,81 @@ export default class AutoHeadingsPlugin extends Plugin {
 
 		// 单一事务：多处行替换合并为一条撤销记录。
 		editor.transaction({ changes });
+		// Backlink 同步（M7，opt-in）：标题文本变了 → 更新别处指向它的内部链接（异步、不阻塞编号）。
+		void this.syncBacklinks(target, oldContent, newContent);
 		return true;
 	}
+
+	/**
+	 * Backlink 同步（M7，见 spec.md §3.12）：标题文本改写后，更新别的文件里指向旧标题锚点的内部链接。
+	 *
+	 * **仅在 `updateBacklinks` 开启时工作**（默认关）。流程：算「旧→新」改名表（纯函数
+	 * {@link computeHeadingRenames}）→ 用 `metadataCache.getBacklinksForFile` 反查引用方 → 对每个引用
+	 * 文件用 `vault.process` 原子重写锚点（纯函数 {@link rewriteBacklinksInContent}）。
+	 *
+	 * 防御性：`getBacklinksForFile` 为半公开 API（返回 `{data}` 包装），缺失 / 异常时**静默降级**——
+	 * 绝不因链接同步失败而打断编号本身。改名表为空（日常打字标题不变）时直接返回，零开销。
+	 */
+	private async syncBacklinks(
+		target: LinkTarget | null | undefined,
+		oldContent: string,
+		newContent: string,
+	): Promise<void> {
+		if (!this.settings.updateBacklinks || !target?.path) {
+			return;
+		}
+		const renames = computeHeadingRenames(oldContent, newContent);
+		if (renames.length === 0) {
+			return;
+		}
+		const map = new Map(renames.map((r) => [r.from, r.to]));
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const mc = this.app.metadataCache as any;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const vault = this.app.vault as any;
+		if (typeof mc?.getBacklinksForFile !== "function" || !vault) {
+			return;
+		}
+		const raw = mc.getBacklinksForFile(target);
+		// 适配半公开 API：可能直接是 Map，也可能是 `{ data: Map }` 包装。
+		const data: Map<string, unknown[]> | undefined =
+			raw?.data instanceof Map ? raw.data : raw instanceof Map ? raw : undefined;
+		if (!data) {
+			return;
+		}
+		const basename = target.basename ?? linkBasename(target.path);
+		let total = 0;
+		for (const sourcePath of data.keys()) {
+			const file = vault.getAbstractFileByPath(sourcePath);
+			// 仅处理文件（排除文件夹：它们有 children 字段）。
+			if (!file || "children" in file) {
+				continue;
+			}
+			await vault.process(file, (content: string) => {
+				const result = rewriteBacklinksInContent(
+					content,
+					basename,
+					sourcePath === target.path,
+					map,
+				);
+				total += result.count;
+				return result.content;
+			});
+		}
+		if (total > 0) {
+			new Notice(this.messages().noticeBacklinksUpdated(total));
+		}
+	}
+}
+
+/** Backlink 同步所需的最小目标文件形状（真实为 Obsidian `TFile`，测试可传同形对象）。 */
+interface LinkTarget {
+	path: string;
+	basename?: string;
+}
+
+/** 从文件路径取 basename（去目录与 `.md` 后缀），用作 `TFile.basename` 缺失时的回退。 */
+function linkBasename(path: string): string {
+	const last = path.split("/").pop() ?? path;
+	return last.replace(/\.md$/i, "");
 }

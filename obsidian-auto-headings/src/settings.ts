@@ -32,6 +32,11 @@ export interface AutoHeadingsSettings {
 	 * 默认 `auto`。解析见 {@link resolveLang}，文案见 {@link getMessages}。
 	 */
 	language: LangSetting;
+	/**
+	 * Backlink 同步（Milestone 7，见 spec.md §3.12）：编号 / 清除改写标题后，自动更新指向该标题的内部
+	 * 链接锚点 `[[file#标题]]`。**默认关**（内测期保守：会改动别的文件、写回不在被改文件的 undo 步内）。
+	 */
+	updateBacklinks: boolean;
 }
 
 /** 防抖延迟的边界与默认值（见 spec.md §3.9）。 */
@@ -44,12 +49,13 @@ export function defaultPathRules(): PathRule[] {
 	return [{ pattern: "/", template: "默认" }];
 }
 
-/** 默认设置：全局自动编号开启、防抖延迟 300 ms、预置 `/`→「默认」根规则、语言自动。 */
+/** 默认设置：全局自动编号开启、防抖延迟 300 ms、预置 `/`→「默认」根规则、语言自动、Backlink 同步关。 */
 export const DEFAULT_SETTINGS: AutoHeadingsSettings = {
 	autoNumber: true,
 	debounceDelay: DEBOUNCE_DEFAULT,
 	pathRules: defaultPathRules(),
 	language: DEFAULT_LANG_SETTING,
+	updateBacklinks: false,
 };
 
 /** 将防抖延迟夹到合法范围 [50, 2000]，非数字回退到默认值。 */
