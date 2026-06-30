@@ -44,6 +44,7 @@
 - `log.md` 只读**最新一块**；更早历史已被归档脚本滚动进 `log-archive.md`，需要时再按需翻。
 - `testplan.md` 不必整读：有 `npm run docs` 的 Addon，跑它即可得「状态计数 + 全部非 ✅ 待办行」摘要。
 - 源码大文件优先 `grep` 关键字 / 函数名定位，不要从头读到尾（具体哪些文件见各 Addon 的 `log.md` 强制规则）。
+  有 `npm run codemap` 的 Addon，**先查 `doc/codemap.md`**（自动生成的符号地图：全局「符号→文件:行号」索引 + 大文件大纲带意图）拿到函数名与位置，再去 grep / 读那一处。
 
 ### 3.1 每个 Addon 的文档结构
 

@@ -6,21 +6,23 @@
  *   node scripts/docs.mjs --keep 5   # 改变 log.md 保留的最新周期块数（默认 3）
  *   node scripts/docs.mjs --check    # 只检查不改动（CI 用）：摘要 + 校验，但不挪动 log 块
  *
- * 做三件事：
+ * 做四件事：
  * 1. **归档 log.md**：只在 log.md 保留最新 N 个「带日期的周期块」，更旧的整体移入
  *    doc/log-archive.md（倒序，新的在上）。区分两类 `## ` 块：
  *      - 「周期块」= 标题含日期 YYYY-MM-DD → 受归档管控；
  *      - 「常青块」= 强制规则 / 目录结构约定 / 安装说明等无日期块 → 永远留在 log.md。
- * 2. **testplan 摘要**：扫描 doc/testplan.md 的真值表，按状态计数，并列出所有**非 ✅** 行
+ * 2. **生成 doc/codemap.md**：调 codemap.mjs 把 src/ 符号地图重新生成（--check 则只比对新鲜度）。
+ * 3. **testplan 摘要**：扫描 doc/testplan.md 的真值表，按状态计数，并列出所有**非 ✅** 行
  *    （场景 ID + 行号），让 Agent 读这份摘要而非整读 439 行。**只读不改**，零信息损失。
- * 3. **校验 status.jsonl**：首行须为合法 JSON 且 type=status，否则报错。
+ * 4. **校验 status.jsonl**：首行须为合法 JSON 且 type=status，否则报错。
  *
  * 设计原则：纯机械、可重复跑（幂等）。Agent 先在 log.md 顶部写完本周期新块、改完 testplan，
  * 再跑本脚本把旧块挪走——所以「写」与「挪」解耦，互不干扰。
  */
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { dirname, join, relative } from "path";
+import { generateCodemap, CODEMAP_PATH } from "./codemap.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const docDir = join(root, "doc");
@@ -179,6 +181,29 @@ function reportTestplan() {
 	}
 }
 
+/**
+ * 同步代码符号地图 doc/codemap.md。
+ * - 默认：重新生成并写盘。
+ * - --check：比对已提交版本与最新生成，过期则非零退出（pre-commit 守卫会据此拦下提交）。
+ */
+function syncCodemap() {
+	const fresh = generateCodemap();
+	const rel = relative(join(docDir, ".."), CODEMAP_PATH);
+	if (checkOnly) {
+		const onDisk = existsSync(CODEMAP_PATH) ? readFileSync(CODEMAP_PATH, "utf8") : "";
+		if (onDisk !== fresh) {
+			console.error(
+				`[codemap] --check 失败：${rel} 与源码不一致（改了源码却没重生成）。` +
+					"请跑 `npm run docs` 重新生成后再提交。",
+			);
+			process.exitCode = 1;
+		}
+		return;
+	}
+	writeFileSync(CODEMAP_PATH, fresh);
+	console.log(`[codemap] 已重新生成 ${rel}`);
+}
+
 function checkStatus() {
 	if (!existsSync(STATUS)) {
 		console.log(`[status] 无 ${STATUS}，跳过。`);
@@ -198,7 +223,8 @@ function checkStatus() {
 }
 
 archiveLog();
-// --check 是钩子/CI 的安静守卫模式：只跑日志守卫 + status 校验，不刷 testplan 摘要
+syncCodemap();
+// --check 是钩子/CI 的安静守卫模式：只跑日志/codemap 守卫 + status 校验，不刷 testplan 摘要
 //（摘要是给 Agent 手动看的，跑 `npm run docs` 才打印）。
 if (!checkOnly) reportTestplan();
 checkStatus();
