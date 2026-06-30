@@ -323,7 +323,8 @@
 - **幂等性记分板**（explore 模式）：断言 `renumber(renumber(x)) === renumber(x)`，恒成立与配置无关，专逮「再触发就变样」的多次侵蚀（U1 正是它逮到的）。
 - **Backlink 往返记分板**（M7，两种模式都跑）：每次触发后对「编号前→后」文本断言 `src/backlinks.ts` 的**改名表幂等**（`computeHeadingRenames(after, after)` 为空）+ **链接重写往返一致**（指向旧标题的 `[[Target#旧]]` 重写后恰指向同一标题的新名）。在整个随机编号空间压测 backlink 核心；覆盖率新增 `backlink-rename` bin。8000×80 全绿。
 - **S4 清除还原 / S5 清外来不动**（0.7.5，缺口①，参考模式）：把清除命令 `clearNumberingContent`/`clearForeignNumberingContent` 纳入激励空间，断言「清除编号还原裸文档」「清外来不动自家 WJ 编号」（裸文档为 clear 定点时施加）。
-- **S6 两层门控**（0.7.5，缺口②，两种模式）：用真实 `readFileSwitch` + 全局 `autoNumber` 决定自动触发是否放行（手动触发绕过），断言门控关时 `rendered` 冻结、且真实开关解析与结构化 fm 状态一致。8000×80 两记分板全绿、未发现引擎 bug。
+- **S6 两层门控**（0.7.5，缺口②，两种模式）：用真实 `readFileSwitch` + 全局 `autoNumber` 决定自动触发是否放行（手动触发绕过），断言门控关时 `rendered` 冻结、且真实开关解析与结构化 fm 状态一致。
+- **S7 模板解析稳定**（0.7.6，缺口③，两种模式）：`World` 升级为多文件 + 多模板 + 路径规则仓库；每次触发前 `checkResolution` 断言无悬挂引用（建/删/改名同步正确）+ 锚点恒在 + 真实 `resolvePathRule` 与独立参考解析一致。多文件各按路径解析不同模板，跨模板残留（B2/B3）由参考模型每文件压测。8000×80 + 20000×80 三记分板全绿、未发现引擎 bug。
 
 **约束 = 当前 strip 健壮性的精确刻画**（每条默认模式约束对应一个已登记 bug/取舍，故 CI 常绿；explore 模式放开全部约束、改用幂等性记分板专门找 bug）：
 
@@ -340,14 +341,15 @@
 >
 > 详见 `tests/dev_tests/uvm/README.md`。
 
-### 4.1 扩展蓝图：把「用户全部操作」纳入验证（阶段 1 已落地，阶段 2 待做）★
+### 4.1 扩展蓝图：把「用户全部操作」纳入验证（阶段 1+2 已落地）★
 
-> **进度（0.7.5）**：**阶段 1 已实现并随 8000×80 全绿**——缺口①（清除命令 S4/S5）、缺口②（两层触发
-> 门控 S6）已纳入 `framework.ts` 激励空间与记分板；缺口③（多文件 + 多模板 + 路径规则）属结构性升级，
-> 仍为阶段 2 规划。下表「现状」列已据此更新。
+> **进度（0.7.6）**：**阶段 1+2 均已实现并随 8000×80 / 20000×80 全绿、未发现引擎 bug**——
+> 缺口①（清除命令 S4/S5，0.7.5）、缺口②（两层触发门控 S6，0.7.5）、缺口③（多文件 + 多模板 +
+> 路径规则 + 模板生命周期 + **S7**，0.7.6）已纳入 `framework.ts`。`World` 已从「单文件单模板」升级为
+> **多文件 + 多模板 + 路径规则的仓库模型**（`files[]` + `templates[]` + `pathRules[]` + 全局开关），
+> 编辑 / 触发作用于「当前文件」、其生效模板由真实 `resolvePathRule` + 查找解析。下表「现状」列已更新。
 >
-> 现框架原把「用户」抽象成了**单文件、单模板、不停手动重排**的人。本蓝图把**真实人类会触及的全部操作**
-> 逐一映射进 UVM，并为每个缺口配一条**恒成立的新不变量**。实现按 §4.1.5 分阶段。
+> 把**真实人类会触及的全部操作**逐一映射进 UVM，每个缺口配一条**恒成立的新不变量**。实现见 §4.1.5。
 
 #### 4.1.1 人类操作全清单 × UVM 覆盖状态
 
@@ -359,14 +361,20 @@
 | 命令 | **清除当前文件编号** | `clearNumberingContent`（全样式并集，独立模板）| ✅ 已建模（`clearNumbering` 激励 + S4，0.7.5）|
 | 命令 | **清理非本插件编号**（WJ 感知）| `clearForeignNumberingContent` | ✅ 已建模（`clearForeign` 激励 + S5，0.7.5）|
 | 命令/面板 | 切换全局自动编号 `autoNumber` | 门控 `shouldAutoTrigger` | ✅ 已建模（`setAutoNumber` + S6 门控，0.7.5）|
-| 面板 | 切换 Backlink 同步开关 `updateBacklinks` | 门控 `syncBacklinks` | ⚠️ 往返已压，门控未建模 |
+| 面板 | 切换 Backlink 同步开关 `updateBacklinks` | 门控 `syncBacklinks` | 🚫 门控属集成层（main.ts），留 `main.test`（M2）；纯函数往返已压 |
 | 面板 | 防抖滑块/重置、语言下拉 | 时序 / 文案 | 🚫 不入 UVM（无文本语义，留手验）|
-| 路径规则 | 增/删/改 pattern、改规则模板、拖拽排序、加根规则 | `resolvePathRule` | ❌ 没建模（UVM 只有一个隐式模板）|
-| 模板管理 | 新建/删除（降级·改投·连删）/重命名（同步规则）| `TemplateStore` + 规则同步 | ❌ 只建模单模板字段编辑 |
-| 多模板共存 | 剥离用**全模板前后缀并集** | `strippableAffixes()` | ⚠️ 用 `["",候选]` 假并集近似 |
-| 多文件 | 不同文件按路径命中**不同模板** | 每文件独立状态 + resolvePathRule | ❌ 单文件世界 |
-| 危险区 | 清除全库编号 | `clearAllVaultNumbering`（逐文件 clearNumbering）| ❌ 没建模 |
+| 路径规则 | 增/删/改 pattern、改规则模板、拖拽排序、加根规则 | `resolvePathRule` | ✅ 已建模（`addRule`/`deleteRule`/`editRulePattern`/`setRuleTemplate`/`reorderRule` + S7，0.7.6）|
+| 模板管理 | 新建/删除（降级·改投·连删）/重命名（同步规则）| `TemplateStore` + 规则同步 | ✅ 已建模（`createTemplate`/`deleteTemplate`/`renameTemplate` + S7 无悬挂，0.7.6）|
+| 多模板共存 | 剥离用**全模板前后缀并集** | `strippableAffixes()` | ✅ 多模板真实并存；并集取「共享候选池」上界（方案 A，见下注）|
+| 多文件 | 不同文件按路径命中**不同模板** | 每文件独立状态 + resolvePathRule | ✅ 已建模（`files[]` + `switchFile` + 每文件解析模板，0.7.6）|
+| 危险区 | 清除全库编号 | `clearAllVaultNumbering`（逐文件 clearNumbering）| ⚠️ 单文件 clear（S4）已压；全库批量循环属薄封装，留 `main.test`/手验 |
 | GUI | 白名单命中预览、拖拽/补全/滚动/折叠、光标保留 | DOM | 🚫 留 `main.test`/`user_tests`（L4–L8、J6）|
+
+> **剥离并集口径（0.7.6）**：全部模板**共享同一前后缀候选池**（`{"", prefixCandidate}` / `{"", suffixCandidate}`），
+> 故固定并集 `["", 候选]` 恒等于真实 `strippableAffixes()` 全模板并集的上界——文件在模板间切换、用旧模板前缀写出的
+> 历史编号仍被剥净（跨模板 B2/B3 由参考模型在每文件压测）。**未建模的边界（阶段 2 backlog）**：若放开「各模板用
+> 不同候选」并按**活模板**动态算并集，则删掉某含唯一前缀的模板会让旧文件留下无法剥离的孤儿残留（真实插件
+> `strippableAffixes()` 只并活模板）——这是「删模板」的真实边角，留作后续 explore 专项。
 
 #### 4.1.2 缺口（按「逮状态转移 bug 的价值」排序）
 
@@ -374,9 +382,11 @@
   用户会「编号 → 清除 → 再编号 → 清外来」反复走，现 UVM 一次都没调过。
 - **缺口 2 · 两层触发门控**（frontmatter × 全局开关）：自动路径受 `shouldAutoTrigger` 门控、手动绕过，
   现 UVM 永远触发，从不走门控。
-- **缺口 3 · 多模板 + 路径规则 + 多文件**（结构性升级）：真实 `strippableAffixes()` 全模板并集从未被跑到，
-  「A 模板旧前缀写、切 B 模板再触发」的跨模板残留（B2/B3 真实形态）无覆盖。
-- **缺口 4 · Backlink 开关门控**：`updateBacklinks=false` 时绝不触碰引用方，未在随机空间建模。
+- **缺口 3 · 多模板 + 路径规则 + 多文件**（结构性升级）✅ 已落地（0.7.6）：多文件各按 `resolvePathRule` 解析
+  不同模板，「A 模板旧前缀写、切 B 模板再触发」的跨模板残留（B2/B3 真实形态）由参考模型每文件压测；
+  模板生命周期（建/删降级改投连删/改名同步规则）+ S7 无悬挂引用。
+- **缺口 4 · Backlink 开关门控**：`updateBacklinks=false` 的「绝不触碰引用方」属**集成层**（main.ts `syncBacklinks`，
+  半公开 `getBacklinksForFile`），与 `getBacklinksForFile` 适配同源，留 `main.test`（M2）覆盖，不入 UVM 纯函数空间。
 
 #### 4.1.3 新增不变量（恒成立的记分板）
 
@@ -385,7 +395,7 @@
 | **S4** 清除还原律 | `clearNumberingContent(renumberContent(bare)) === bare` | 编号器写的 WJ 前缀，全样式并集剥离器须能剥净还原 | ✅ 已实现（0.7.5，8000×80 全绿）|
 | **S5** 清外来不动律 | `clearForeignNumberingContent(renumberContent(bare)) === renumberContent(bare)` | 自家 WJ 编号不被「清外来」误碰（WJ 边界正确性）| ✅ 已实现（0.7.5，8000×80 全绿）|
 | **S6** 门控冻结律 | autoTrigger 在 `shouldAutoTrigger=false`（fm:false 或全局关且非 fm:true）时 rendered 不变；真实 `readFileSwitch` 解析与结构化 fm 状态一致 | 门控误放行 / 冻结失效 / fm 解析错 | ✅ 已实现（0.7.5，8000×80 全绿）|
-| **S7** 模板解析稳定律 | rename / 删模板降级改投后，`resolvePathRule(file)` 仍指向预期模板、旧前缀仍可剥净 | 规则同步漏改 / 解析分叉 | 🔲 阶段 2 |
+| **S7** 模板解析稳定律 | ① 无悬挂引用：每条规则引用的模板都存在（建/删/改名后同步正确）；② 锚点「默认」恒在；③ 真实 `resolvePathRule` 与独立参考解析一致（精确文件＞最长文件夹＞根，并列取后者）；旧前缀仍可剥净（参考模型保证）| 规则同步漏改 / 解析分叉 / 删模板留悬挂 | ✅ 已实现（0.7.6，`checkResolution`，8000×80+20000×80 全绿）|
 
 > **S4/S5 的排除项（实测确立，0.7.5）**：只在「裸文档本身是 clear 的定点」（`clearNumbering(bare)===bare`
 > / `clearForeign(bare)===bare`）时施加并断言——这自动排除自食前缀（`2024 总结`）、白名单豁免（裸态命中）、
@@ -430,9 +440,18 @@ World（单文件单模板）  →  Vault（多文件 + 多模板 + 路径规则
   + **S4/S5** + 两层门控（`setFrontmatterSwitch`/`setAutoNumber` + 手动/自动 trigger 分路）+ **S6**。
   新增覆盖率 bin（gated-off / fm=false·true·illegal / autoNumber-off-trigger / manual-trigger /
   clear-restore(S4) / clear-foreign-noop(S5)）在 500×60 默认运行闭合；8000×80 两记分板全绿、**未发现引擎 bug**。
-- **阶段 2（结构性）🔲 待做**：`World→Vault` 多文件/多模板/路径规则/模板生命周期 + **S7** + 真实并集。
+- **阶段 2（结构性）✅ 已完成（0.7.6）**：`World` 升级为**多文件 + 多模板 + 路径规则**仓库模型——
+  新增 `files[]`（每文件独立 bare/rendered/frontmatter + `switchFile`）、`templates[]`（共享候选池，
+  `createTemplate`/`deleteTemplate` 降级·改投·连删 / `renameTemplate` 同步规则）、`pathRules[]`
+  （`addRule`/`deleteRule`/`editRulePattern`/`setRuleTemplate`/`reorderRule`）；当前文件经真实
+  `resolvePathRule` + 查找解析生效模板（= 插件 `getTemplateForFile`），无命中 → 自动静默/手动无操作（I7/K6）。
+  新增 **S7**（`checkResolution`：无悬挂引用 + 锚点恒在 + 真实解析 vs 独立参考一致）+ 覆盖率 bin
+  （multi-template / cross-template-switch / null-resolution / resolve-root·folder·file / 各生命周期 op）。
+  500×60 闭合；8000×80 + 20000×80 三记分板全绿、**未发现引擎 bug**。剥离并集取共享候选池上界（见 §4.1.1 注，
+  动态活模板并集 + 删模板孤儿残留留 backlog）。
 - **明确不入 UVM**（留 `main.test` 集成 / `user_tests` 手验）：防抖时序(J1–J3)、光标选区(J6)、
-  拖拽/补全/滚动/折叠 DOM(L4–L8)、语言文案、白名单命中预览、`getBacklinksForFile` 半公开 API 适配。
+  拖拽/补全/滚动/折叠 DOM(L4–L8)、语言文案、白名单命中预览、Backlink 开关门控（缺口④）、
+  `getBacklinksForFile` 半公开 API 适配、全库批量清除循环。
 
 ---
 

@@ -110,36 +110,39 @@ AAH_FUZZ_SEED=9 AAH_FUZZ_RUNS=1 AAH_FUZZ_OPS=60 npx vitest run tests/dev_tests/r
 2. 若新维度可能触达**已知 bug**，先加相应**约束**（并在上表登记对应 testplan ID），保持 CI 绿。
 3. 跑 `npm run test:fuzz` 几轮确认不误报，再提交。
 
-## 升级蓝图：把「用户全部操作」纳入验证（阶段 1 已落地，阶段 2 待做）★
+## 升级蓝图：把「用户全部操作」纳入验证（阶段 1+2 已落地）★
 
-> **进度（0.7.5）**：**阶段 1 已实现并随 8000×80 全绿**——缺口①（清除命令 S4/S5）、缺口②（两层触发门控
-> S6）已纳入本框架；缺口③（多文件 + 多模板 + 路径规则，S7）属结构性升级，仍为阶段 2。下表标 ✅ 者已落地。
-> 完整缺口表与约束模型见 `doc/testplan.md` §4.1。这里给实现者一份摘要。
+> **进度（0.7.6）**：**阶段 1+2 均已实现并随 8000×80 / 20000×80 全绿、未发现引擎 bug**——缺口①（清除命令
+> S4/S5）、缺口②（两层触发门控 S6）、缺口③（多文件 + 多模板 + 路径规则 + 模板生命周期 + S7）已纳入本框架。
+> `World` 已从「单文件单模板」升级为**多文件 + 多模板 + 路径规则仓库模型**。完整缺口表与约束模型见
+> `doc/testplan.md` §4.1。这里给实现者一份摘要。
 
 **四大缺口**：
 
 1. ✅ **清除命令**（`clearNumberingContent` / `clearForeignNumberingContent`）——已纳入激励空间（0.7.5）。
 2. ✅ **两层触发门控**（frontmatter 开关 × 全局 `autoNumber`）——已建模手动/自动分路 + 真实 `readFileSwitch`（0.7.5）。
-3. 🔲 **多模板 + 路径规则 + 多文件**——真实 `strippableAffixes()` 全模板并集仍未跑到（现用 `["",候选]` 假并集）。阶段 2。
-4. 🔲 **Backlink 开关门控**——`updateBacklinks=false` 时不触碰引用方，仍未在随机空间建模。阶段 2。
+3. ✅ **多模板 + 路径规则 + 多文件**——`files[]` + `templates[]` + `pathRules[]` 仓库模型，每文件按真实 `resolvePathRule` 解析模板 + 模板生命周期 + S7（0.7.6）。剥离并集取共享候选池上界（方案 A）。
+4. 🚫 **Backlink 开关门控**——属集成层（main.ts `syncBacklinks` + 半公开 `getBacklinksForFile`），留 `main.test`（M2），不入 UVM 纯函数空间。
 
 **四条新记分板（恒成立不变量）**：
 
-| ID                    | 不变量                                                                                           | 状态      |
-| --------------------- | ------------------------------------------------------------------------------------------------ | --------- |
-| **S4** 清除还原律     | `clearNumberingContent(renumberContent(bare)) === bare`（裸为 clear 定点时施加，仅参考模式）     | ✅ 0.7.5  |
-| **S5** 清外来不动律   | `clearForeignNumberingContent(renumberContent(bare)) === renumberContent(bare)`（WJ 边界正确性） | ✅ 0.7.5  |
-| **S6** 两层门控       | 真实 `readFileSwitch` + 全局开关决定自动放行（手动绕过）；门控关时 `rendered` 冻结、fm 解析一致  | ✅ 0.7.5  |
-| **S7** 模板解析稳定律 | rename / 删模板降级改投后 `resolvePathRule(file)` 仍指向预期模板、旧前缀仍可剥净                 | 🔲 阶段 2 |
+| ID                    | 不变量                                                                                           | 状态     |
+| --------------------- | ------------------------------------------------------------------------------------------------ | -------- |
+| **S4** 清除还原律     | `clearNumberingContent(renumberContent(bare)) === bare`（裸为 clear 定点时施加，仅参考模式）     | ✅ 0.7.5 |
+| **S5** 清外来不动律   | `clearForeignNumberingContent(renumberContent(bare)) === renumberContent(bare)`（WJ 边界正确性） | ✅ 0.7.5 |
+| **S6** 两层门控       | 真实 `readFileSwitch` + 全局开关决定自动放行（手动绕过）；门控关时 `rendered` 冻结、fm 解析一致  | ✅ 0.7.5 |
+| **S7** 模板解析稳定律 | 无悬挂引用（建/删/改名同步正确）+ 锚点「默认」恒在 + 真实 `resolvePathRule` 与独立参考解析一致   | ✅ 0.7.6 |
 
 > **实测边界（0.7.5）**：S4/S5 仅在参考（干净）模式施加——explore 的 `mutatePrefix` 会故意抹掉 WJ，此后
 > 「清外来」剥掉失去 WJ 的残缺前缀属**预期**（用户破坏了编号、插件认不出自家），S5「无操作」前提随之不成立。
 > 见 `doc/testplan.md` §3.2 取舍表 S5b。
 
-**结构升级**：`World`（单文件单模板）→ `Vault`（`files` Map + 真实 `templates[]` + `pathRules[]` + `autoNumber/updateBacklinks` 门控）；
-新增 `OpKind`：`setFrontmatterSwitch`、`clearNumbering`、`clearForeign`、`manualRenumber`、`setAutoNumber`、`setBacklinkSync`、
-`createTemplate`/`deleteTemplate`/`renameTemplate`、`addRule`/`deleteRule`/`editRulePattern`/`setRuleTemplate`/`reorderRule`/`switchFilePath`。
-约束（需求语义边界，非盲目随机）与覆盖率 bin 见 testplan §4.1.4。
+**结构（已落地 0.7.6）**：`World` = 多文件仓库（`files[]` 各自 bare/rendered/frontmatter + `cur` 当前文件）、
+命名模板集 `templates[]`（共享前后缀候选池）、路径规则 `pathRules[]`、全局 `autoNumber`；当前文件经真实
+`resolvePathRule` 解析生效模板。已落地 `OpKind`：`setFrontmatterSwitch`、`setAutoNumber`、`clearNumbering`、
+`clearForeign`、`manualTrigger`、`createTemplate`、`deleteTemplate`、`renameTemplate`、`addRule`、`deleteRule`、
+`editRulePattern`、`setRuleTemplate`、`reorderRule`、`switchFile`。约束与覆盖率 bin 见 testplan §4.1.4。
 
-**分阶段**：① 高价值三块（清除命令 S4/S5 + 门控 S6，单 `World` 可增量）；② 结构性（`World→Vault` + S7 + 真实并集）。
-**不入 UVM**（留 `main.test` / `user_tests`）：防抖时序、光标选区、拖拽/补全/滚动/折叠 DOM、语言文案、白名单命中预览、`getBacklinksForFile` 半公开 API 适配。
+**不入 UVM**（留 `main.test` / `user_tests`）：防抖时序、光标选区、拖拽/补全/滚动/折叠 DOM、语言文案、
+白名单命中预览、Backlink 开关门控（缺口④集成层）、`getBacklinksForFile` 半公开 API 适配、全库批量清除循环。
+**backlog**：放开「各模板用不同候选」+ 按活模板动态算剥离并集，探「删含唯一前缀模板 → 旧文件孤儿残留」。

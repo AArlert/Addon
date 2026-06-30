@@ -90,7 +90,23 @@
  *   （`trigger`，过真实 {@link readFileSwitch} + 全局开关的 `shouldAutoTrigger`）。**S6 门控**：门控关时
  *   `rendered` 冻结、且真实开关解析与结构化 fm 状态一致（{@link World.checkGate}）。
  *
- * 8000×80 两记分板全绿、**未发现引擎 bug**。阶段 2（World→Vault 多文件多模板 + S7）待做。
+ * 8000×80 两记分板全绿、**未发现引擎 bug**。
+ *
+ * ## 0.7.6 升级：World→Vault 多文件 + 多模板 + 路径规则 + S7（扩展蓝图阶段 2，缺口③）
+ *
+ * 把「单文件单模板」升级为**仓库模型**，覆盖远更多真实用户操作：
+ * - **多文件**：{@link World.files} 持若干文件（各自 bare/rendered/frontmatter），`switchFile` 切换当前
+ *   编辑 / 触发对象；每文件按真实 {@link resolvePathRule} + 查找解析**各自的生效模板**。
+ * - **多模板**：{@link World.templates} 命名模板集（共享前后缀候选池，保固定剥离并集为真实
+ *   `strippableAffixes()` 上界）；config 类激励改**随机一个模板**的字段。生命周期：createTemplate /
+ *   deleteTemplate（锚点「默认」不可删；引用其的规则降级/改投/连删）/ renameTemplate（改名 + 同步规则）。
+ * - **路径规则**：{@link World.pathRules}（addRule/deleteRule/editRulePattern/setRuleTemplate/reorderRule），
+ *   删根规则 → 该文件无模板（自动静默 / 手动无操作，I7/K6）。
+ * - **S7 模板解析记分板**（{@link World.checkResolution}）：无悬挂引用（生命周期同步正确）+ 锚点恒在 +
+ *   真实解析与独立参考 {@link World.expectedResolve} 一致。跨模板残留（B2/B3）由参考模型每文件压测。
+ *
+ * 8000×80 + 20000×80 三记分板全绿、**未发现引擎 bug**。剥离并集取共享候选池上界（动态活模板并集 +
+ * 删模板孤儿残留留 backlog，见 testplan §4.1.1 注）。Backlink 开关门控（缺口④）属集成层，留 main.test。
  */
 
 import {
@@ -111,7 +127,24 @@ import {
 } from "../../../src/backlinks";
 import { clearForeignNumberingContent, clearNumberingContent } from "../../../src/cleanup";
 import { readFileSwitch } from "../../../src/frontmatter";
+import { resolvePathRule, type PathRule } from "../../../src/pathrules";
 import { Rng } from "./rng";
+
+/**
+ * 独立重实现的「规则是否匹配 / 具体度」（S7 参考模型，与 `src/pathrules.ts` 解耦）：用于核对真实
+ * {@link resolvePathRule} 的解析结果。生成器只产出已归一化的干净模式（无反斜杠 / `./` / 重复斜杠），
+ * 故此处无需归一化——归一化边界由 `pathrules.test.ts` 静态覆盖，本参考模型聚焦「具体度 + 并列取后者」。
+ */
+function indepMatch(pattern: string, path: string): boolean {
+	if (pattern === "/") return true;
+	if (pattern.endsWith("/")) return path.startsWith(pattern);
+	return path === pattern;
+}
+function indepSpec(pattern: string): number {
+	if (pattern === "/") return 0;
+	if (pattern.endsWith("/")) return pattern.length;
+	return 1_000_000 + pattern.length;
+}
 
 /** 文档的一行：标题（级别 + 裸标题文本）或原样行（正文 / 代码块栅栏 / 块内行）。 */
 type Line = { kind: "heading"; level: number; title: string } | { kind: "raw"; text: string };
@@ -285,6 +318,15 @@ export type OpKind =
 	| "setAutoNumber"
 	| "clearNumbering"
 	| "clearForeign"
+	| "createTemplate"
+	| "deleteTemplate"
+	| "renameTemplate"
+	| "addRule"
+	| "deleteRule"
+	| "editRulePattern"
+	| "setRuleTemplate"
+	| "reorderRule"
+	| "switchFile"
 	| "manualTrigger"
 	| "trigger";
 
@@ -343,6 +385,26 @@ export class Coverage {
 	clearRestore = false;
 	/** 清外来不动律 S5 曾被断言（清理外来编号 → 自家 WJ 编号不动，缺口①）。 */
 	clearForeignNoop = false;
+	// ── 阶段 2（缺口③）：多文件 + 多模板 + 路径规则 ──
+	templateCreated = false;
+	templateDeleted = false;
+	templateRenamed = false;
+	ruleAdded = false;
+	ruleDeleted = false;
+	ruleEdited = false;
+	ruleRetargeted = false;
+	ruleReordered = false;
+	fileSwitched = false;
+	/** 曾在某时刻同时存在 ≥2 个模板。 */
+	multiTemplate = false;
+	/** 某文件两次有效触发之间，其生效模板名发生过变化（跨模板状态转移）。 */
+	crossTemplateSwitch = false;
+	/** 某次触发时当前文件无可用模板（无规则命中 → 静默跳过，对应 I7/K6）。 */
+	nullResolution = false;
+	/** 触发时生效规则的具体度：根 / 文件夹 / 精确文件各命中过。 */
+	resolveRoot = false;
+	resolveFolder = false;
+	resolveFile = false;
 	triggers = 0;
 
 	bumpOp(kind: OpKind): void {
@@ -375,6 +437,15 @@ export class Coverage {
 			"setAutoNumber",
 			"clearNumbering",
 			"clearForeign",
+			"createTemplate",
+			"deleteTemplate",
+			"renameTemplate",
+			"addRule",
+			"deleteRule",
+			"editRulePattern",
+			"setRuleTemplate",
+			"reorderRule",
+			"switchFile",
 			"manualTrigger",
 			"trigger",
 		];
@@ -413,6 +484,14 @@ export class Coverage {
 		if (!this.manualTriggered) missing.push("manual-trigger");
 		if (!this.clearRestore) missing.push("clear-restore(S4)");
 		if (!this.clearForeignNoop) missing.push("clear-foreign-noop(S5)");
+		// 缺口③新增 bin。
+		if (!this.multiTemplate) missing.push("multi-template");
+		if (!this.crossTemplateSwitch) missing.push("cross-template-switch");
+		if (!this.nullResolution) missing.push("null-resolution");
+		if (!this.resolveRoot) missing.push("resolve-root");
+		if (!this.resolveFolder) missing.push("resolve-folder");
+		if (!this.resolveFile) missing.push("resolve-file");
+		if (!this.fileSwitched) missing.push("file-switched");
 		return missing;
 	}
 }
@@ -426,23 +505,67 @@ export class SequenceError extends Error {
 }
 
 /**
- * 一条序列的「世界」：持有裸文档真值、当前编辑器文本（锁步）、当前模板，并提供
- * step（约束随机产生并施加一个 Op）与 check（参考模型记分板）。
+ * 单个「文件」的状态：裸文档真值 + 编辑器文本（锁步）+ 该文件的 frontmatter 开关。
+ * 阶段 2（缺口③）：一个仓库有多个文件，各自独立编辑、各自按路径规则解析模板。
+ */
+interface FileState {
+	path: string;
+	bare: Line[];
+	/** 与 bare 行一一对应；含上一次触发写入的前缀（刚插入/改写的行暂为裸文本）。 */
+	rendered: string[];
+	/** 单文件开关的结构化真值（驱动真实 {@link readFileSwitch}）。 */
+	frontmatterState: FrontmatterState;
+}
+
+/** 仓库内可用的文件路径池（含多层文件夹，供文件夹规则 / 文件规则 / 子树匹配）。 */
+const FILE_PATHS = [
+	"笔记.md",
+	"Projects/规划.md",
+	"Projects/sub/细节.md",
+	"读书/深度工作.md",
+	"归档/old.md",
+];
+/** 路径规则模式池：根 / 各级文件夹 / 精确文件（具体度递增，供 resolvePathRule 解析压测）。 */
+const RULE_PATTERNS = [
+	"/",
+	"Projects/",
+	"Projects/sub/",
+	"读书/",
+	"归档/",
+	"笔记.md",
+	"Projects/规划.md",
+	"读书/深度工作.md",
+];
+/** 不可删 / 不可改名的锚点模板名（对应真实插件「默认」模板，保证根规则恒可解析）。 */
+const ANCHOR_TEMPLATE = "默认";
+
+/**
+ * 一条序列的「世界」（阶段 2 起为**多文件 + 多模板 + 路径规则**的仓库模型）：持有若干文件
+ * （各自裸文档 / 编辑器文本 / frontmatter）、一组命名模板、一组路径规则与全局开关，并提供
+ * step（约束随机产生并施加一个 Op）与各记分板（参考模型 / 幂等 / Backlink / 清除 S4·S5 / 门控 S6 /
+ * 模板解析 S7）。
+ *
+ * **当前文件**（{@link cur}）是编辑 / 触发的作用对象；其**生效模板**由 `pathRules` 经真实
+ * {@link resolvePathRule} + 模板查找解析（= 插件 `getTemplateForFile`），无命中则该文件无模板
+ * （自动静默 / 手动无操作）。`bare` / `rendered` / `frontmatterState` 经 getter/setter 委托到当前文件。
  */
 export class World {
-	private bare: Line[];
-	/** 与 bare 行一一对应；含上一次触发写入的前缀（刚插入/改写的行暂为裸文本）。 */
-	private rendered: string[];
-	private template: Template;
-	/** 本序列的非空前缀 / 后缀候选；前后缀在「空 ↔ 候选」间切换（验证 B2/B3）。 */
+	/** 仓库内的若干文件（缺口③）；编辑 / 触发作用于 {@link cur} 指向的当前文件。 */
+	private readonly files: FileState[];
+	private cur = 0;
+	/** 命名模板集合（缺口③）：全部共享同一前后缀候选池（方案 A，使固定剥离并集恒覆盖）。 */
+	private templates: Template[];
+	/** 路径规则（缺口③）：路径模式 → 模板名；经真实 {@link resolvePathRule} 解析当前文件的模板。 */
+	private pathRules: PathRule[];
+	/** 全序列共享的非空前缀 / 后缀候选；各模板前后缀在「空 ↔ 候选」间切换（验证 B2/B3）。 */
 	private readonly prefixCandidate: string;
 	private readonly suffixCandidate: string;
 	/**
 	 * 传给 `renumberContent` 的剥离选项：`strippablePrefixes` / `strippableSuffixes` 取「空 + 候选」，
-	 * 模拟 main.ts 传入的「全模板前后缀并集」（方案 A），使前后缀切换后旧前缀仍能被剥净。
+	 * 模拟 main.ts 的 `strippableAffixes()`「全模板前后缀并集」（方案 A）。**全部模板共享同一候选池**，
+	 * 故固定并集恒等于真实全模板并集的上界，即便文件在模板间切换、旧模板前缀仍被剥净（跨模板 B2/B3）。
 	 *
-	 * 0.6.5 起**不再注入 `isWhitelisted` 回调**——改由引擎按 `template.whitelist` 自动计算豁免
-	 * （{@link computeWhitelistExemptions}），从而真正覆盖 exact/partial/subtree 三种匹配。
+	 * 0.6.5 起不再注入 `isWhitelisted` 回调——改由引擎按 `template.whitelist` 自动计算豁免。
 	 */
 	private readonly opts: {
 		strippablePrefixes: string[];
@@ -451,15 +574,10 @@ export class World {
 	/** 本序列的标题取样池；方案 A 后不再回避「数字/字母起头」标题（恒含空前缀候选 → 对称处理）。 */
 	private readonly titlePool: string[];
 	private readonly trace: string[] = [];
-	/**
-	 * 两层触发门控状态（缺口②）：
-	 * - {@link frontmatterState}：单文件开关的结构化真值（驱动真实 {@link readFileSwitch}）。
-	 * - {@link autoNumber}：全局自动编号面板开关。
-	 * 自动触发须过 `shouldAutoTrigger`（fm:false→关；fm:true→开；缺省/非法→跟随 autoNumber）；
-	 * 手动触发（「立即重新编号」）绕过门控。
-	 */
-	private frontmatterState: FrontmatterState = "none";
+	/** 全局自动编号面板开关（缺口②）；自动触发须过 `shouldAutoTrigger`，手动触发绕过。 */
 	private autoNumber = true;
+	/** 每个文件上次**有效触发**时的生效模板名，用于检测「跨模板切换」覆盖（缺口③）。 */
+	private readonly lastResolved = new Map<string, string | null>();
 
 	constructor(
 		private readonly rng: Rng,
@@ -474,28 +592,94 @@ export class World {
 			strippablePrefixes: ["", this.prefixCandidate],
 			strippableSuffixes: ["", this.suffixCandidate],
 		};
-		// 起始前后缀随机为「空」或「候选」（后续 setPrefix/setSuffix 还会切换）。
-		const startPrefix = rng.chance(0.5) ? "" : this.prefixCandidate;
-		const startSuffix = rng.chance(0.5) ? "" : this.suffixCandidate;
-		const topLevel = rng.intRange(1, 3);
+		// —— 模板集合：锚点「默认」+ 随机 1–2 个额外模板（各自格式不同，但共享前后缀候选池）——
+		this.templates = [this.makeTemplate(ANCHOR_TEMPLATE)];
+		const extra = rng.int(2); // 0/1：再加 0~1 个，半数序列多模板。
+		const extraNames = ["模板B", "模板C"];
+		for (let i = 0; i < extra + 1; i++) {
+			this.templates.push(this.makeTemplate(extraNames[i]));
+		}
+		// —— 路径规则：恒含根规则「/」→默认（锚点），再随机叠 0–2 条更具体的规则 ——
+		this.pathRules = [{ pattern: "/", template: ANCHOR_TEMPLATE }];
+		const ruleCount = rng.int(3);
+		for (let i = 0; i < ruleCount; i++) {
+			this.pathRules.push({
+				pattern: rng.pick(RULE_PATTERNS),
+				template: rng.pick(this.templates).name,
+			});
+		}
+		// —— 文件：随机 1–3 个不同路径，各自最小裸文档 + 随机 frontmatter ——
+		const fileCount = rng.intRange(1, 3);
+		const paths = [...FILE_PATHS];
+		this.files = [];
+		const startFm: FrontmatterState[] = ["none", "none", "true", "false", "illegal"];
+		for (let i = 0; i < fileCount && paths.length; i++) {
+			const path = paths.splice(rng.int(paths.length), 1)[0];
+			const bare: Line[] = [
+				{ kind: "heading", level: rng.intRange(2, 3), title: rng.pick(this.titlePool) },
+			];
+			this.files.push({
+				path,
+				bare,
+				rendered: bare.map(serializeLine),
+				frontmatterState: rng.pick(startFm),
+			});
+		}
+		this.cur = 0;
+		this.autoNumber = rng.chance(0.5);
+	}
+
+	// ── 当前文件 / 生效模板访问器 ─────────────────────────────────────────────
+	private get file(): FileState {
+		return this.files[this.cur];
+	}
+	private get bare(): Line[] {
+		return this.file.bare;
+	}
+	private set bare(v: Line[]) {
+		this.file.bare = v;
+	}
+	private get rendered(): string[] {
+		return this.file.rendered;
+	}
+	private set rendered(v: string[]) {
+		this.file.rendered = v;
+	}
+	private get frontmatterState(): FrontmatterState {
+		return this.file.frontmatterState;
+	}
+	private set frontmatterState(v: FrontmatterState) {
+		this.file.frontmatterState = v;
+	}
+
+	/** 造一个共享前后缀候选池、格式随机的命名模板。 */
+	private makeTemplate(name: string): Template {
 		const tpl = structuredClone(DEFAULT_TEMPLATE);
+		tpl.name = name;
+		const startPrefix = this.rng.chance(0.5) ? "" : this.prefixCandidate;
+		const startSuffix = this.rng.chance(0.5) ? "" : this.suffixCandidate;
 		for (const k of ["h1", "h2", "h3", "h4", "h5", "h6"] as const) {
 			tpl.levels[k].prefix = startPrefix;
 			tpl.levels[k].suffix = startSuffix;
+			tpl.levels[k].numeral = this.rng.pick(this.cfg.numerals);
 		}
-		tpl.topLevel = topLevel;
-		// 随机初始白名单：0–2 条，词取自标题池里真实出现的词，匹配方式随机（含 subtree）。
+		tpl.topLevel = this.rng.intRange(1, 3);
 		tpl.whitelist = this.randomWhitelist();
-		this.template = tpl;
-		// 起始：一个最小裸文档（一个标题），后续靠编辑 Op 长大。
-		this.bare = [
-			{ kind: "heading", level: Math.max(topLevel, 2), title: rng.pick(this.titlePool) },
-		];
-		this.rendered = this.bare.map(serializeLine);
-		// 起始门控随机：约一半序列从「全局关」或带 frontmatter 开关起步，确保门控空间被覆盖。
-		this.autoNumber = rng.chance(0.5);
-		const startFm: FrontmatterState[] = ["none", "none", "true", "false", "illegal"];
-		this.frontmatterState = rng.pick(startFm);
+		return tpl;
+	}
+
+	/** 当前文件经真实 `resolvePathRule` + 模板查找解析到的生效模板（= 插件 getTemplateForFile）。 */
+	private resolvedTemplate(): Template | null {
+		const rule = resolvePathRule(this.pathRules, this.file.path);
+		if (!rule) {
+			return null;
+		}
+		return this.templates.find((t) => t.name === rule.template) ?? null;
+	}
+
+	/** 随机挑一个模板来「改格式字段」（config 类激励的作用对象）。 */
+	private pickTemplate(): Template {
+		return this.rng.pick(this.templates);
 	}
 
 	/** 把结构化 frontmatter 状态渲染成实际的 `---` 块行（none 时为空块）。 */
@@ -541,10 +725,13 @@ export class World {
 	 * 计算**裸文档**里被白名单豁免的标题所在行下标（供就地编辑守卫与覆盖率）。
 	 * 直接复用引擎的 {@link computeWhitelistExemptions}，与 DUT 同口径。
 	 */
-	private exemptBareIndices(): Set<number> {
-		const headings = parseHeadings(serialize(this.bare));
-		const exemptSet = computeWhitelistExemptions(headings, this.template, this.opts);
+	private exemptBareIndices(template: Template | null): Set<number> {
 		const out = new Set<number>();
+		if (!template) {
+			return out;
+		}
+		const headings = parseHeadings(serialize(this.bare));
+		const exemptSet = computeWhitelistExemptions(headings, template, this.opts);
 		for (const h of headings) {
 			if (exemptSet.has(h)) out.add(h.lineIndex);
 		}
@@ -579,9 +766,18 @@ export class World {
 		}
 	}
 
-	/** 收尾：强制**手动**触发一次并校验，确保每条序列至少有效结算一次（不被门控冻结）。 */
+	/**
+	 * 收尾：确保每条序列至少**有效结算一次**——补一条根规则→默认（若已被删），再对每个文件**手动**触发
+	 * （绕过门控、必命中模板），让所有文件的参考模型在终态都被校验一遍。
+	 */
 	finish(): void {
-		this.trigger(true);
+		if (!this.pathRules.some((r) => r.pattern === "/")) {
+			this.pathRules.unshift({ pattern: "/", template: ANCHOR_TEMPLATE });
+		}
+		for (let i = 0; i < this.files.length; i++) {
+			this.cur = i;
+			this.trigger(true);
+		}
 	}
 
 	// ── 编辑类激励 ───────────────────────────────────────────────────────────
@@ -696,7 +892,7 @@ export class World {
 						// 白名单判定改用引擎真实豁免集合（含 subtree），与 0.6.5 的真实 whitelist 驱动一致。
 						this.cfg.messyTitles ||
 						(!SELF_EATING.has(oldTitle) &&
-							!this.exemptBareIndices().has(i) &&
+							!this.exemptBareIndices(this.resolvedTemplate()).has(i) &&
 							oldTitle !== "")
 					) {
 						newTitle = oldTitle + this.rng.pick(SAFE_FRAGMENTS);
@@ -824,9 +1020,10 @@ export class World {
 
 	// ── 配置类激励（在约束内）─────────────────────────────────────────────────
 	private config(): void {
+		// 格式类激励作用于**随机挑的一个模板** tpl（缺口③：多模板，改 A 模板未必影响用 B 模板的文件）。
+		const tpl = this.pickTemplate();
 		// inherit 翻转仍按**当前**前后缀是否都为空门控（约束未放开；非空前后缀下 inherit 翻转另案）。
-		const affixEmptyNow =
-			this.template.levels.h2.prefix === "" && this.template.levels.h2.suffix === "";
+		const affixEmptyNow = tpl.levels.h2.prefix === "" && tpl.levels.h2.suffix === "";
 		const choices: OpKind[] = [
 			"setNumeral",
 			"setNumberSep",
@@ -840,6 +1037,16 @@ export class World {
 			"setWhitelist",
 			"setFrontmatterSwitch",
 			"setAutoNumber",
+			// 阶段 2（缺口③）：模板生命周期 + 路径规则 + 多文件切换。
+			"createTemplate",
+			"deleteTemplate",
+			"renameTemplate",
+			"addRule",
+			"deleteRule",
+			"editRulePattern",
+			"setRuleTemplate",
+			"reorderRule",
+			"switchFile",
 		];
 		if (affixEmptyNow || this.cfg.allowInheritWithAffix) choices.push("setInherit");
 		const kind = this.rng.pick(choices);
@@ -848,94 +1055,91 @@ export class World {
 			case "setNumeral": {
 				const n = this.rng.pick(this.cfg.numerals);
 				const lvl = this.rng.pick(lvls);
-				this.template.levels[lvl].numeral = n;
+				tpl.levels[lvl].numeral = n;
 				this.cov.numerals.add(n);
-				this.trace.push(`setNumeral ${lvl}=${n}`);
+				this.trace.push(`setNumeral ${tpl.name}.${lvl}=${n}`);
 				break;
 			}
 			case "setNumberSep": {
 				const s = this.rng.pick(NUMBER_SEPS);
-				for (const lvl of lvls) this.template.levels[lvl].numberSeparator = s;
-				this.trace.push(`setNumberSep ${JSON.stringify(s)}`);
+				for (const lvl of lvls) tpl.levels[lvl].numberSeparator = s;
+				this.trace.push(`setNumberSep ${tpl.name} ${JSON.stringify(s)}`);
 				break;
 			}
 			case "setTitleSep": {
 				const s = this.rng.pick(TITLE_SEPS);
-				for (const lvl of lvls) this.template.levels[lvl].titleSeparator = s;
-				this.trace.push(`setTitleSep ${JSON.stringify(s)}`);
+				for (const lvl of lvls) tpl.levels[lvl].titleSeparator = s;
+				this.trace.push(`setTitleSep ${tpl.name} ${JSON.stringify(s)}`);
 				break;
 			}
 			case "setInherit": {
 				const v = this.rng.chance(0.5);
 				const lvl = this.rng.pick(lvls);
-				if (
-					this.template.levels[lvl].prefix !== "" ||
-					this.template.levels[lvl].suffix !== ""
-				) {
+				if (tpl.levels[lvl].prefix !== "" || tpl.levels[lvl].suffix !== "") {
 					this.cov.inheritWithAffix = true;
 				}
-				this.template.levels[lvl].inherit = v;
+				tpl.levels[lvl].inherit = v;
 				if (!v) this.cov.inheritFalse = true;
-				this.trace.push(`setInherit ${lvl}=${v}`);
+				this.trace.push(`setInherit ${tpl.name}.${lvl}=${v}`);
 				break;
 			}
 			case "setPrefix": {
 				// 在「空 ↔ 候选」间切换（所有级别同步），验证 B2/B3「改前缀后再触发不叠加」。
 				const v = this.rng.chance(0.5) ? "" : this.prefixCandidate;
-				for (const lvl of lvls) this.template.levels[lvl].prefix = v;
+				for (const lvl of lvls) tpl.levels[lvl].prefix = v;
 				this.cov.affixToggled = true;
-				this.trace.push(`setPrefix ${JSON.stringify(v)}`);
+				this.trace.push(`setPrefix ${tpl.name} ${JSON.stringify(v)}`);
 				break;
 			}
 			case "setSuffix": {
 				const v = this.rng.chance(0.5) ? "" : this.suffixCandidate;
-				for (const lvl of lvls) this.template.levels[lvl].suffix = v;
+				for (const lvl of lvls) tpl.levels[lvl].suffix = v;
 				this.cov.affixToggled = true;
-				this.trace.push(`setSuffix ${JSON.stringify(v)}`);
+				this.trace.push(`setSuffix ${tpl.name} ${JSON.stringify(v)}`);
 				break;
 			}
 			case "setTopLevel": {
-				const cur = this.template.topLevel;
+				const cur = tpl.topLevel;
 				const next = this.rng.intRange(1, 4);
 				if (next < cur) this.cov.topLevelLowered = true;
 				if (next > cur) this.cov.topLevelRaised = true;
-				this.template.topLevel = next;
+				tpl.topLevel = next;
 				// 保持 bottomLevel ≥ topLevel（与 GUI 一致），避免退化空区间淹没覆盖。
-				if (this.template.bottomLevel < next) this.template.bottomLevel = next;
-				this.trace.push(`setTopLevel ${cur}->${next}`);
+				if (tpl.bottomLevel < next) tpl.bottomLevel = next;
+				this.trace.push(`setTopLevel ${tpl.name} ${cur}->${next}`);
 				break;
 			}
 			case "setBottomLevel": {
 				// 结束编号层级（0.6.5）：在 [topLevel, 6] 内随机，覆盖「只编号区间」与收窄后剥残留。
-				const cur = this.template.bottomLevel;
-				const next = this.rng.intRange(this.template.topLevel, 6);
-				this.template.bottomLevel = next;
+				const cur = tpl.bottomLevel;
+				const next = this.rng.intRange(tpl.topLevel, 6);
+				tpl.bottomLevel = next;
 				if (next < 6) this.cov.bottomLevelNarrowed = true;
-				this.trace.push(`setBottomLevel ${cur}->${next}`);
+				this.trace.push(`setBottomLevel ${tpl.name} ${cur}->${next}`);
 				break;
 			}
 			case "setSkipFill": {
 				const sf: SkipFill = this.rng.chance(0.5)
 					? { mode: "fill", placeholder: this.rng.pick(["0", "1"]) }
 					: { mode: "drop" };
-				this.template.skipFill = sf;
+				tpl.skipFill = sf;
 				if (sf.mode === "drop") this.cov.skipDrop = true;
 				else this.cov.skipFill = true;
-				this.trace.push(`setSkipFill ${sf.mode}`);
+				this.trace.push(`setSkipFill ${tpl.name} ${sf.mode}`);
 				break;
 			}
 			case "setAncestor": {
 				const a: AncestorNumeral = this.rng.chance(0.5) ? "arabic" : "self";
-				this.template.ancestorNumeral = a;
+				tpl.ancestorNumeral = a;
 				if (a === "arabic") this.cov.ancestorArabic = true;
 				else this.cov.ancestorSelf = true;
-				this.trace.push(`setAncestor ${a}`);
+				this.trace.push(`setAncestor ${tpl.name} ${a}`);
 				break;
 			}
 			case "setWhitelist": {
 				// 真实白名单驱动（0.6.5）：随机增 / 删 / 改一条条目（含 subtree），驱动引擎的
 				// computeWhitelistExemptions，覆盖「改白名单后再触发」的状态转移与子树豁免。
-				const wl = this.template.whitelist;
+				const wl = tpl.whitelist;
 				const action = wl.length === 0 ? 0 : this.rng.int(3);
 				if (action === 0) {
 					const text = this.rng.pick(WHITELIST_WORDS);
@@ -948,7 +1152,130 @@ export class World {
 				} else {
 					wl[this.rng.int(wl.length)].match = this.rng.pick(MATCH_MODES);
 				}
-				this.trace.push(`setWhitelist ${JSON.stringify(wl)}`);
+				this.trace.push(`setWhitelist ${tpl.name} ${JSON.stringify(wl)}`);
+				break;
+			}
+			case "createTemplate": {
+				// 缺口③：新建模板（最多 3 个；共享前后缀候选池）。
+				if (this.templates.length < 3) {
+					const used = new Set(this.templates.map((t) => t.name));
+					const name = ["模板B", "模板C", "模板D"].find((n) => !used.has(n));
+					if (name) {
+						this.templates.push(this.makeTemplate(name));
+						this.cov.templateCreated = true;
+						this.trace.push(`createTemplate ${name}`);
+					}
+				}
+				this.checkResolution();
+				break;
+			}
+			case "deleteTemplate": {
+				// 缺口③：删模板（锚点「默认」不可删，对应真实插件）。删时把引用它的规则**降级/改投/连删**。
+				const victims = this.templates.filter((t) => t.name !== ANCHOR_TEMPLATE);
+				if (victims.length) {
+					const victim = this.rng.pick(victims);
+					const others = this.templates.filter((t) => t.name !== victim.name);
+					// 去向：改投另一模板（含降级到默认）或「连规则一并删」。
+					const deleteRules = this.rng.chance(0.3);
+					const redirect = this.rng.pick(others).name;
+					if (deleteRules) {
+						this.pathRules = this.pathRules.filter((r) => r.template !== victim.name);
+					} else {
+						for (const r of this.pathRules) {
+							if (r.template === victim.name) r.template = redirect;
+						}
+					}
+					this.templates = others;
+					this.cov.templateDeleted = true;
+					this.trace.push(
+						`deleteTemplate ${victim.name} -> ${deleteRules ? "连规则删" : redirect}`,
+					);
+				}
+				this.checkResolution();
+				break;
+			}
+			case "renameTemplate": {
+				// 缺口③：改名（锚点不可改名）+ 同步所有引用该模板名的路径规则（= 插件 renameTemplate）。
+				const victims = this.templates.filter((t) => t.name !== ANCHOR_TEMPLATE);
+				if (victims.length) {
+					const victim = this.rng.pick(victims);
+					const used = new Set(this.templates.map((t) => t.name));
+					const next = ["模板B", "模板C", "模板D", "模板E"].find((n) => !used.has(n));
+					if (next) {
+						const old = victim.name;
+						victim.name = next;
+						for (const r of this.pathRules) {
+							if (r.template === old) r.template = next; // 同步规则。
+						}
+						this.cov.templateRenamed = true;
+						this.trace.push(`renameTemplate ${old} -> ${next}`);
+					}
+				}
+				this.checkResolution();
+				break;
+			}
+			case "addRule": {
+				this.pathRules.push({
+					pattern: this.rng.pick(RULE_PATTERNS),
+					template: this.rng.pick(this.templates).name,
+				});
+				this.cov.ruleAdded = true;
+				this.trace.push(`addRule ${JSON.stringify(this.pathRules.at(-1))}`);
+				this.checkResolution();
+				break;
+			}
+			case "deleteRule": {
+				// 允许删任意规则（含根规则 → 部分文件可能无模板，覆盖 null 解析 / I7·K6）。
+				if (this.pathRules.length > 1) {
+					const i = this.rng.int(this.pathRules.length);
+					this.trace.push(`deleteRule #${i} ${JSON.stringify(this.pathRules[i])}`);
+					this.pathRules.splice(i, 1);
+					this.cov.ruleDeleted = true;
+				}
+				this.checkResolution();
+				break;
+			}
+			case "editRulePattern": {
+				if (this.pathRules.length) {
+					const i = this.rng.int(this.pathRules.length);
+					this.pathRules[i].pattern = this.rng.pick(RULE_PATTERNS);
+					this.cov.ruleEdited = true;
+					this.trace.push(`editRulePattern #${i} -> ${this.pathRules[i].pattern}`);
+				}
+				this.checkResolution();
+				break;
+			}
+			case "setRuleTemplate": {
+				if (this.pathRules.length) {
+					const i = this.rng.int(this.pathRules.length);
+					this.pathRules[i].template = this.rng.pick(this.templates).name;
+					this.cov.ruleRetargeted = true;
+					this.trace.push(`setRuleTemplate #${i} -> ${this.pathRules[i].template}`);
+				}
+				this.checkResolution();
+				break;
+			}
+			case "reorderRule": {
+				if (this.pathRules.length > 1) {
+					const from = this.rng.int(this.pathRules.length);
+					const to = this.rng.int(this.pathRules.length);
+					const [moved] = this.pathRules.splice(from, 1);
+					this.pathRules.splice(to, 0, moved);
+					this.cov.ruleReordered = true;
+					this.trace.push(`reorderRule ${from}->${to}`);
+				}
+				this.checkResolution();
+				break;
+			}
+			case "switchFile": {
+				// 缺口③：切换当前编辑 / 触发的文件（各文件独立状态、各按路径解析模板）。
+				if (this.files.length > 1) {
+					let next = this.cur;
+					while (next === this.cur) next = this.rng.int(this.files.length);
+					this.cur = next;
+					this.cov.fileSwitched = true;
+					this.trace.push(`switchFile -> ${this.file.path}`);
+				}
 				break;
 			}
 			case "setFrontmatterSwitch": {
@@ -1001,6 +1328,7 @@ export class World {
 	 * @param manual 手动触发（「立即重新编号」命令）绕过门控；自动触发须过 `shouldAutoTrigger`。
 	 */
 	private trigger(manual: boolean): void {
+		this.checkResolution(); // S7：每次触发前核对路径解析一致 + 无悬挂引用。
 		// 两层门控（缺口②）：自动路径由真实 readFileSwitch + 全局开关决定是否放行；手动路径恒放行。
 		const sw = readFileSwitch(this.composeFull());
 		this.checkGate(sw);
@@ -1012,25 +1340,97 @@ export class World {
 			this.trace.push(`— autoTrigger gated-off (fm=${this.frontmatterState}) —`);
 			return;
 		}
+		// 缺口③：当前文件按路径规则解析生效模板；无命中 → 无可用模板（自动静默 / 手动无操作，I7/K6）。
+		const rule = resolvePathRule(this.pathRules, this.file.path);
+		const template = this.resolvedTemplate();
+		if (!template) {
+			this.cov.nullResolution = true;
+			this.trace.push(`— trigger no-template (${this.file.path}) —`);
+			return;
+		}
+		// 解析具体度覆盖 + 跨模板切换检测（与上次该文件有效触发的生效模板比对）。
+		if (rule) {
+			if (rule.pattern === "/") this.cov.resolveRoot = true;
+			else if (rule.pattern.endsWith("/")) this.cov.resolveFolder = true;
+			else this.cov.resolveFile = true;
+		}
+		const prev = this.lastResolved.get(this.file.path);
+		if (prev !== undefined && prev !== template.name) this.cov.crossTemplateSwitch = true;
+		this.lastResolved.set(this.file.path, template.name);
+		if (this.templates.length >= 2) this.cov.multiTemplate = true;
+
 		if (manual) this.cov.manualTriggered = true;
-		if (this.template.levels.h2.prefix !== "" || this.template.levels.h2.suffix !== "") {
+		if (template.levels.h2.prefix !== "" || template.levels.h2.suffix !== "") {
 			this.cov.affixNonEmptyTrigger = true;
 		}
 		const before = this.rendered.join("\n");
-		const after = renumberContent(before, this.template, this.opts);
+		const after = renumberContent(before, template, this.opts);
 		this.rendered = after.split("\n");
 		this.cov.bumpOp(manual ? "manualTrigger" : "trigger");
 		this.cov.triggers++;
 		this.trace.push(manual ? "— manualTrigger —" : "— autoTrigger —");
 		this.detectLevelJump();
-		this.detectWhitelistCoverage();
+		this.detectWhitelistCoverage(template);
 		// Backlink 改名表 + 链接重写往返不变量（M7，两种 oracle 均跑：纯属 before→after 文本性质）。
 		this.checkBacklinkRoundTrip(before, after);
 		if (this.cfg.oracle === "reference") {
-			this.check();
+			this.check(template);
 		} else {
-			this.checkIdempotent();
+			this.checkIdempotent(template);
 		}
+	}
+
+	/**
+	 * **模板解析记分板 S7**（缺口③）：核对路径规则解析的自洽性——
+	 * 1. **无悬挂引用**：每条规则引用的模板名都存在（删 / 改名后同步正确，= 插件 renameTemplate / 删模板降级）。
+	 * 2. **锚点恒在**：默认模板不可删 → 必存在（保证根规则恒可解析）。
+	 * 3. **解析一致**：真实 {@link resolvePathRule} 的结果与独立参考模型 {@link expectedResolve} 一致
+	 *    （具体度：精确文件 ＞ 最长文件夹 ＞ 根；并列取列表靠后者）。
+	 */
+	private checkResolution(): void {
+		const live = new Set(this.templates.map((t) => t.name));
+		if (!live.has(ANCHOR_TEMPLATE)) {
+			throw new SequenceError(
+				this.seed,
+				this.trace,
+				`S7：锚点模板「${ANCHOR_TEMPLATE}」丢失`,
+			);
+		}
+		for (const r of this.pathRules) {
+			if (!live.has(r.template)) {
+				throw new SequenceError(
+					this.seed,
+					this.trace,
+					`S7 悬挂引用：规则 ${JSON.stringify(r)} 指向不存在的模板（生命周期同步漏改）`,
+				);
+			}
+		}
+		for (const f of this.files) {
+			const real = resolvePathRule(this.pathRules, f.path);
+			const exp = this.expectedResolve(f.path);
+			if ((real?.pattern ?? null) !== (exp?.pattern ?? null)) {
+				throw new SequenceError(
+					this.seed,
+					this.trace,
+					`S7 解析不一致（${f.path}）：真实=${JSON.stringify(real)} 参考=${JSON.stringify(exp)}`,
+				);
+			}
+		}
+	}
+
+	/** S7 的独立参考解析：在干净模式池里选最具体（并列取后者）的匹配规则。 */
+	private expectedResolve(path: string): PathRule | null {
+		let best: PathRule | null = null;
+		let bestSpec = -1;
+		for (const r of this.pathRules) {
+			if (!indepMatch(r.pattern, path)) continue;
+			const s = indepSpec(r.pattern);
+			if (s >= bestSpec) {
+				best = r;
+				bestSpec = s;
+			}
+		}
+		return best;
 	}
 
 	/**
@@ -1096,16 +1496,16 @@ export class World {
 	}
 
 	/** 收集白名单相关覆盖率（匹配方式 / 命中 / 子树带子标题），与真实豁免集合一致。 */
-	private detectWhitelistCoverage(): void {
-		for (const e of this.template.whitelist) {
+	private detectWhitelistCoverage(template: Template): void {
+		for (const e of template.whitelist) {
 			if (e.match === "exact") this.cov.whitelistExact = true;
 			else if (e.match === "partial") this.cov.whitelistPartial = true;
 			else if (e.match === "subtree") this.cov.whitelistSubtree = true;
 		}
-		const exempt = this.exemptBareIndices();
+		const exempt = this.exemptBareIndices(template);
 		if (exempt.size > 0) this.cov.whitelistHit = true;
 		// 子树带子标题：存在 subtree 条目，且相邻两个被豁免标题中后者更深（= 子标题被一并豁免）。
-		if (this.template.whitelist.some((e) => e.match === "subtree") && exempt.size >= 2) {
+		if (template.whitelist.some((e) => e.match === "subtree") && exempt.size >= 2) {
 			const headings = parseHeadings(serialize(this.bare));
 			for (let i = 0; i < headings.length - 1; i++) {
 				if (
@@ -1143,9 +1543,9 @@ export class World {
 	 * > 局限：若叠加后的形态本身已是**定点**（再触发不变，如 L1 残留 `1 a) 标题`），幂等性逮不到——
 	 * > 那类「定点但错」的残留由默认模式的参考模型在受约束空间里把守。两记分板**互补**。
 	 */
-	private checkIdempotent(): void {
+	private checkIdempotent(template: Template): void {
 		const once = this.rendered.join("\n"); // = 本次触发输出（已写回 rendered）。
-		const twice = renumberContent(once, this.template, this.opts);
+		const twice = renumberContent(once, template, this.opts);
 		if (twice !== once) {
 			throw new SequenceError(
 				this.seed,
@@ -1158,9 +1558,9 @@ export class World {
 	}
 
 	/** 记分板：DUT 输出必须等于「裸文档真值直接编号」，且层级 / 原样行不被改写。 */
-	private check(): void {
+	private check(template: Template): void {
 		const dut = this.rendered.join("\n");
-		const reference = renumberContent(serialize(this.bare), this.template, this.opts);
+		const reference = renumberContent(serialize(this.bare), template, this.opts);
 		if (dut !== reference) {
 			throw new SequenceError(
 				this.seed,
