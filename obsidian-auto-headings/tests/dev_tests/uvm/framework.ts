@@ -55,17 +55,33 @@
  *
  * > 默认约束**就是 bug 边界**：放开一条 = 扩大覆盖，放开后变红即没修彻底。explore 模式则故意越过这些边界
  * > 找新 bug（U1/U2/U3 即此而来）。详见 uvm/README.md「放开约束」。
+ *
+ * ## 0.6.5 升级：扩大验证空间与自由度
+ *
+ * 把「插件全部可设置 + 用户可操作」更完整地纳入激励空间：
+ * - **真实白名单驱动**：删去旧版注入的 `isWhitelisted` 回调，改由 `template.whitelist`（随机 0–2 条，
+ *   匹配方式含 **exact/partial/subtree**）驱动引擎的 {@link computeWhitelistExemptions}——旧版**完全没
+ *   覆盖子树 / 部分匹配与「子标题随根豁免」**。新增 `setWhitelist` 配置激励（增 / 删 / 改条目，覆盖
+ *   「改白名单后再触发」的状态转移）。DUT 与参考两侧均走真实 whitelist，故能逮「带历史前缀 vs 裸文档」
+ *   的豁免分叉（8000×80 默认模式全绿 → 确认 exact/partial/subtree 引擎实现一致、无前缀敏感分叉）。
+ * - **结束编号层级 bottomLevel**：新增 `setBottomLevel` 激励（在 [topLevel,6] 随机），覆盖「只编号区间」
+ *   与「收窄区间后剥残留」。
+ * - **覆盖率新 bin**：whitelist-exact/partial/subtree、subtree-带子标题、bottomLevel-narrowed（默认 500×60 闭合）。
+ * - explore 模式（新维度叠加脏编辑）撞出 **U4**（标题正文以**空白起头**时连续触发非幂等：首次保留前导空格、
+ *   再次被 parser `[ \t]+` 收拢，见 testplan §3.2）——登记未修。
  */
 
 import {
+	computeWhitelistExemptions,
 	DEFAULT_TEMPLATE,
 	renumberContent,
 	type AncestorNumeral,
 	type NumeralStyle,
 	type SkipFill,
 	type Template,
+	type WhitelistEntry,
 } from "../../../src/numbering";
-import type { Heading } from "../../../src/parser";
+import { parseHeadings } from "../../../src/parser";
 import { Rng } from "./rng";
 
 /** 文档的一行：标题（级别 + 裸标题文本）或原样行（正文 / 代码块栅栏 / 块内行）。 */
@@ -96,8 +112,17 @@ const TITLES = [
 	"实现 1.2",
 	"小结",
 ];
-/** 白名单词（归一化后命中即豁免编号）。 */
-const WHITELIST = new Set(["目录", "附录", "参考文献"]);
+/**
+ * 白名单**候选词池**（0.6.5 升级：UVM 改用**真实** `template.whitelist` 驱动引擎的
+ * {@link computeWhitelistExemptions}，覆盖 exact/partial/**subtree** 三种匹配，而非旧版注入
+ * 的 `isWhitelisted` 回调——后者只测「单点命中」、**完全没覆盖子树 / 部分匹配**）。
+ *
+ * 这些词都出现在 {@link TITLES} 里（如「附录」「目录」「参考文献」「小结」「概述」），故随机把它们
+ * 设进白名单后会真实命中标题，驱动子树 / 部分匹配的豁免与计数器跳过逻辑。
+ */
+const WHITELIST_WORDS = ["目录", "附录", "参考文献", "小结", "概述"];
+/** 白名单匹配方式池（含 subtree，专为覆盖子树豁免与「子标题错挂」边界）。 */
+const MATCH_MODES: WhitelistEntry["match"][] = ["exact", "partial", "subtree"];
 /**
  * "自食前缀"型标题：本身以**数字**开头（如 `2024 总结`），会被 arabic 剥离器按预期吃掉
  * （spec §2.3 既定取舍）。
@@ -206,19 +231,6 @@ export const EXPLORE_GEN: GenConfig = {
 	oracle: "idempotent",
 };
 
-/**
- * 把标题文本归一化后判断是否命中白名单：剥掉**前导的序号样字 + 间隔符**再比较，使
- * 「附录」「1 附录」「1.1 附录」都归一为「附录」。DUT 与参考两侧用同一 matcher，结果一致。
- */
-function whitelistKey(text: string): string {
-	return text
-		.replace(/^[\s0-9〇零一二三四五六七八九十百千万亿兆①-⓿㉑-㊿a-zA-Z.\-、。．·)\]）】]+/, "")
-		.trim();
-}
-function isWhitelisted(h: Heading): boolean {
-	return WHITELIST.has(whitelistKey(h.text));
-}
-
 /** 各类激励（仅用于覆盖率与失败时的轨迹打印）。 */
 export type OpKind =
 	| "insertHeading"
@@ -236,8 +248,10 @@ export type OpKind =
 	| "setPrefix"
 	| "setSuffix"
 	| "setTopLevel"
+	| "setBottomLevel"
 	| "setSkipFill"
 	| "setAncestor"
+	| "setWhitelist"
 	| "trigger";
 
 /** 功能覆盖率收集器（UVM functional coverage）：确认随机真的撞到了关心的场景。 */
@@ -258,6 +272,14 @@ export class Coverage {
 	affixNonEmptyTrigger = false;
 	fencePresent = false;
 	whitelistHit = false;
+	/** 白名单三种匹配方式各自曾被设入模板（真实 whitelist 驱动，0.6.5）。 */
+	whitelistExact = false;
+	whitelistPartial = false;
+	whitelistSubtree = false;
+	/** 曾出现「子树根命中且其下确有更深子标题被一并豁免」的情形。 */
+	whitelistSubtreeWithChildren = false;
+	/** 结束编号层级 bottomLevel 曾被收窄到 < 6（编号区间下界，0.6.5）。 */
+	bottomLevelNarrowed = false;
 	emptyTitle = false;
 	levelGE5 = false;
 	levelJump = false;
@@ -292,8 +314,10 @@ export class Coverage {
 			"setPrefix",
 			"setSuffix",
 			"setTopLevel",
+			"setBottomLevel",
 			"setSkipFill",
 			"setAncestor",
+			"setWhitelist",
 			"trigger",
 		];
 		for (const op of allOps) {
@@ -311,6 +335,11 @@ export class Coverage {
 		if (!this.affixNonEmptyTrigger) missing.push("affix-nonempty-trigger");
 		if (!this.fencePresent) missing.push("fence");
 		if (!this.whitelistHit) missing.push("whitelist-hit");
+		if (!this.whitelistExact) missing.push("whitelist-exact");
+		if (!this.whitelistPartial) missing.push("whitelist-partial");
+		if (!this.whitelistSubtree) missing.push("whitelist-subtree");
+		if (!this.whitelistSubtreeWithChildren) missing.push("whitelist-subtree-children");
+		if (!this.bottomLevelNarrowed) missing.push("bottomLevel-narrowed");
 		if (!this.emptyTitle) missing.push("empty-title");
 		if (!this.levelGE5) missing.push("level>=5");
 		if (!this.levelJump) missing.push("level-jump");
@@ -343,8 +372,11 @@ export class World {
 	/**
 	 * 传给 `renumberContent` 的剥离选项：`strippablePrefixes` / `strippableSuffixes` 取「空 + 候选」，
 	 * 模拟 main.ts 传入的「全模板前后缀并集」（方案 A），使前后缀切换后旧前缀仍能被剥净。
+	 *
+	 * 0.6.5 起**不再注入 `isWhitelisted` 回调**——改由引擎按 `template.whitelist` 自动计算豁免
+	 * （{@link computeWhitelistExemptions}），从而真正覆盖 exact/partial/subtree 三种匹配。
 	 */
-	private readonly opts: { isWhitelisted: typeof isWhitelisted } & {
+	private readonly opts: {
 		strippablePrefixes: string[];
 		strippableSuffixes: string[];
 	};
@@ -362,7 +394,6 @@ export class World {
 		this.prefixCandidate = rng.pick(PREFIX_CANDIDATES);
 		this.suffixCandidate = rng.pick(SUFFIX_CANDIDATES);
 		this.opts = {
-			isWhitelisted,
 			strippablePrefixes: ["", this.prefixCandidate],
 			strippableSuffixes: ["", this.suffixCandidate],
 		};
@@ -376,12 +407,42 @@ export class World {
 			tpl.levels[k].suffix = startSuffix;
 		}
 		tpl.topLevel = topLevel;
+		// 随机初始白名单：0–2 条，词取自标题池里真实出现的词，匹配方式随机（含 subtree）。
+		tpl.whitelist = this.randomWhitelist();
 		this.template = tpl;
 		// 起始：一个最小裸文档（一个标题），后续靠编辑 Op 长大。
 		this.bare = [
 			{ kind: "heading", level: Math.max(topLevel, 2), title: rng.pick(this.titlePool) },
 		];
 		this.rendered = this.bare.map(serializeLine);
+	}
+
+	/** 随机生成一组白名单条目（0–2 条，词去重，匹配方式随机）。 */
+	private randomWhitelist(): WhitelistEntry[] {
+		const count = this.rng.int(3); // 0/1/2
+		const out: WhitelistEntry[] = [];
+		const used = new Set<string>();
+		for (let i = 0; i < count; i++) {
+			const text = this.rng.pick(WHITELIST_WORDS);
+			if (used.has(text)) continue;
+			used.add(text);
+			out.push({ text, match: this.rng.pick(MATCH_MODES) });
+		}
+		return out;
+	}
+
+	/**
+	 * 计算**裸文档**里被白名单豁免的标题所在行下标（供就地编辑守卫与覆盖率）。
+	 * 直接复用引擎的 {@link computeWhitelistExemptions}，与 DUT 同口径。
+	 */
+	private exemptBareIndices(): Set<number> {
+		const headings = parseHeadings(serialize(this.bare));
+		const exemptSet = computeWhitelistExemptions(headings, this.template, this.opts);
+		const out = new Set<number>();
+		for (const h of headings) {
+			if (exemptSet.has(h)) out.add(h.lineIndex);
+		}
+		return out;
 	}
 
 	/** 当前 bare 文档里的标题行下标。 */
@@ -438,7 +499,6 @@ export class World {
 				if (level >= 5) this.cov.levelGE5 = true;
 				if (title === "") this.cov.emptyTitle = true;
 				if (SELF_EATING.has(title)) this.cov.selfEatingTitle = true;
-				if (WHITELIST.has(title)) this.cov.whitelistHit = true;
 				this.trace.push(`insertHeading H${level} ${JSON.stringify(title)}`);
 				break;
 			}
@@ -492,7 +552,6 @@ export class World {
 					this.rendered[i] = serializeLine(this.bare[i]);
 					if (title === "") this.cov.emptyTitle = true;
 					if (SELF_EATING.has(title)) this.cov.selfEatingTitle = true;
-					if (WHITELIST.has(title)) this.cov.whitelistHit = true;
 					this.trace.push(`retitle #${i} -> ${JSON.stringify(title)}`);
 				}
 				break;
@@ -520,9 +579,12 @@ export class World {
 						const frag = this.rng.pick(MESSY_FRAGMENTS);
 						newTitle = this.rng.chance(0.5) ? frag + oldTitle : oldTitle + frag;
 					} else if (
-						// 默认模式：避开自食 / 白名单 / 空标题，保证「裸↔渲染」strip 干净、参考模型恒一致。
+						// 默认模式：避开自食 / 当前被白名单豁免 / 空标题，保证「裸↔渲染」strip 干净、参考模型恒一致。
+						// 白名单判定改用引擎真实豁免集合（含 subtree），与 0.6.5 的真实 whitelist 驱动一致。
 						this.cfg.messyTitles ||
-						(!SELF_EATING.has(oldTitle) && !WHITELIST.has(oldTitle) && oldTitle !== "")
+						(!SELF_EATING.has(oldTitle) &&
+							!this.exemptBareIndices().has(i) &&
+							oldTitle !== "")
 					) {
 						newTitle = oldTitle + this.rng.pick(SAFE_FRAGMENTS);
 					}
@@ -600,8 +662,10 @@ export class World {
 			"setPrefix",
 			"setSuffix",
 			"setTopLevel",
+			"setBottomLevel",
 			"setSkipFill",
 			"setAncestor",
+			"setWhitelist",
 		];
 		if (affixEmptyNow || this.cfg.allowInheritWithAffix) choices.push("setInherit");
 		const kind = this.rng.pick(choices);
@@ -662,7 +726,18 @@ export class World {
 				if (next < cur) this.cov.topLevelLowered = true;
 				if (next > cur) this.cov.topLevelRaised = true;
 				this.template.topLevel = next;
+				// 保持 bottomLevel ≥ topLevel（与 GUI 一致），避免退化空区间淹没覆盖。
+				if (this.template.bottomLevel < next) this.template.bottomLevel = next;
 				this.trace.push(`setTopLevel ${cur}->${next}`);
+				break;
+			}
+			case "setBottomLevel": {
+				// 结束编号层级（0.6.5）：在 [topLevel, 6] 内随机，覆盖「只编号区间」与收窄后剥残留。
+				const cur = this.template.bottomLevel;
+				const next = this.rng.intRange(this.template.topLevel, 6);
+				this.template.bottomLevel = next;
+				if (next < 6) this.cov.bottomLevelNarrowed = true;
+				this.trace.push(`setBottomLevel ${cur}->${next}`);
 				break;
 			}
 			case "setSkipFill": {
@@ -683,6 +758,25 @@ export class World {
 				this.trace.push(`setAncestor ${a}`);
 				break;
 			}
+			case "setWhitelist": {
+				// 真实白名单驱动（0.6.5）：随机增 / 删 / 改一条条目（含 subtree），驱动引擎的
+				// computeWhitelistExemptions，覆盖「改白名单后再触发」的状态转移与子树豁免。
+				const wl = this.template.whitelist;
+				const action = wl.length === 0 ? 0 : this.rng.int(3);
+				if (action === 0) {
+					const text = this.rng.pick(WHITELIST_WORDS);
+					const match = this.rng.pick(MATCH_MODES);
+					if (!wl.some((e) => e.text === text && e.match === match)) {
+						wl.push({ text, match });
+					}
+				} else if (action === 1) {
+					wl.splice(this.rng.int(wl.length), 1);
+				} else {
+					wl[this.rng.int(wl.length)].match = this.rng.pick(MATCH_MODES);
+				}
+				this.trace.push(`setWhitelist ${JSON.stringify(wl)}`);
+				break;
+			}
 			default:
 				break;
 		}
@@ -701,10 +795,36 @@ export class World {
 		this.cov.triggers++;
 		this.trace.push("— trigger —");
 		this.detectLevelJump();
+		this.detectWhitelistCoverage();
 		if (this.cfg.oracle === "reference") {
 			this.check();
 		} else {
 			this.checkIdempotent();
+		}
+	}
+
+	/** 收集白名单相关覆盖率（匹配方式 / 命中 / 子树带子标题），与真实豁免集合一致。 */
+	private detectWhitelistCoverage(): void {
+		for (const e of this.template.whitelist) {
+			if (e.match === "exact") this.cov.whitelistExact = true;
+			else if (e.match === "partial") this.cov.whitelistPartial = true;
+			else if (e.match === "subtree") this.cov.whitelistSubtree = true;
+		}
+		const exempt = this.exemptBareIndices();
+		if (exempt.size > 0) this.cov.whitelistHit = true;
+		// 子树带子标题：存在 subtree 条目，且相邻两个被豁免标题中后者更深（= 子标题被一并豁免）。
+		if (this.template.whitelist.some((e) => e.match === "subtree") && exempt.size >= 2) {
+			const headings = parseHeadings(serialize(this.bare));
+			for (let i = 0; i < headings.length - 1; i++) {
+				if (
+					exempt.has(headings[i].lineIndex) &&
+					exempt.has(headings[i + 1].lineIndex) &&
+					headings[i + 1].level > headings[i].level
+				) {
+					this.cov.whitelistSubtreeWithChildren = true;
+					break;
+				}
+			}
 		}
 	}
 

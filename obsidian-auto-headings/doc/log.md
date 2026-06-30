@@ -31,6 +31,38 @@
 
 ---
 
+## 2026-06-30 0.6.6 方案A(WJ 边界根治正文被吃) + UVM 真实白名单升级 + 清理外来编号命令 + 白名单集成修复（claude/obsidian-auto-headings-polish-gvq9cf）
+
+### 做了什么（按用户给的顺序：先升框架、再方案A、再修 bug，外加新命令）
+
+- **UVM 框架升级（`tests/dev_tests/uvm/framework.ts`）**——把「插件全部可设置 + 用户可操作」更全地纳入激励空间：
+  - **真实白名单驱动**：删去旧版注入的 `isWhitelisted` 回调，改由 `template.whitelist`（随机 0–2 条、匹配方式含 **exact/partial/subtree**）驱动引擎 `computeWhitelistExemptions`——旧版**完全没覆盖子树 / 部分匹配 / 子标题随根豁免**。新增 `setWhitelist` 激励（增 / 删 / 改条目）。
+  - **bottomLevel 维度**：新增 `setBottomLevel` 激励（[topLevel,6] 随机）+ topLevel 抬高时联动抬 bottomLevel。
+  - **覆盖率新 bin**：whitelist-exact/partial/subtree、subtree-带子标题、bottomLevel-narrowed（默认 500×60 闭合）。
+  - **撞 bug**：默认（参考模型）8000×80 全绿 → 证实引擎 exact/partial/subtree 豁免在「带历史前缀 vs 裸文档」两侧一致、无前缀敏感分叉（即用户报告的子树 bug **不是引擎 bug**）。explore（叠加脏编辑）撞出 **U4**（标题以**空白**起头时连续触发非幂等，parser `[ \t]+` 收拢所致），登记 testplan §3.2 未修。
+- **方案A（`src/numbering.ts`，用户拍板「直接默认、不适配历史」）**——`stripPrefix` 改为**纯 Word Joiner 边界**：含 WJ → 精确剥到标记后；**无 WJ → 整段视为正文、原样返回**（不再正则猜前缀）。删去不再使用的容差正则机器（`tolerantSeparator`/`tolerantInnerSeparator`/`innerSegmentToken`/`lastSegmentToken`/`unionToken`/`ALWAYS_STRIPPABLE_STYLES`）。**根治**「2024 年度总结 / API 设计 等正文被当编号吃」整类问题（U1/U2/U3 一并消除，known_bugs.test 三条转为「正文保留+幂等」回归）。`stripPrefixBroad`（「清除编号」用）保持激进正则不变。`level/template/options` 三参降级为签名兼容（`_` 前缀）。
+- **新命令「清理非本插件的标题编号」（用户追加需求，配合方案A）**——`src/numbering.ts` 加 `stripForeignNumbering`（更广手写惯例正则：全样式 + `第…章` + 成对括号 `(1)`/`（一）`/`[1]`/`【1】` + `1.`/`1)`/`一、`，序号后须跟分隔/右括号才剥，故 `100`/`三` 不误剥）；`src/cleanup.ts` 加 `clearForeignNumberingContent`（**只剥不含 WJ 的标题**、保留插件自己写的 WJ 编号）；`main.ts` 注册命令 `clear-foreign-numbering` + `runClearForeignNumbering`；i18n 加 `cmdClearForeign`/`noticeForeignCleared`/`noticeNoForeign`。
+- **白名单子树「集成 bug」修复（WL-int）**——定位为**预览口径不一致**（白名单编辑器预览的是「正在编辑的模板」，文件却按路径规则解析到另一个模板编号）。修：`SettingsTab` 白名单预览在「当前文件实际模板 ≠ 正在编辑模板」或「无命中模板」时显示 ⚠ 提示、预览标注「假设」（i18n `wlPreviewOtherTemplate`/`wlPreviewNoTemplate` + `.ah-wl-mismatch` 样式）；`main.test.ts` 加集成回归（子树白名单经自动触发路径正确豁免根+子标题、幂等；并附「机制说明」用例）。
+- **测试**：numbering（stripPrefix/2024 折中块/C3/空标题等约 8 组改写为方案A 语义 + bottomLevel 区间块沿用）、known_bugs（U1/U2/U3 转正）、cleanup（新增 clearForeignNumbering 7 例 + C3 调整）、main（strippableAffixes 改 WJ + 子树集成 2 例）、whitelist（D7 改 WJ）、i18n（形状一致自动校验新键）。
+- **文档**：spec §2.3（2024 行）/§2.4（标「方案A 已落地」+ 改锚点）/§3.5（方案A 剥离）/§3.10（三入口 + 新命令 + stripForeignNumbering）/Roadmap M7；testplan §3.2（U1/U2/U3→✅ 方案A 根治 + U4 登记）/§3.3（WL-int→✅）；README / release/README（新命令 + 方案A）。
+
+### 没做什么
+
+- **U4 未修**（标题正文以空白起头 → parser `[ \t]+` 收拢致非幂等）：explore 专属脏输入边角，正常输入不触发，登记 testplan §3.2 待后续。
+- explore 模式仍 `it.skip`、不进 CI（撞 U4）；默认模式（参考模型）才是 CI 常绿网。
+- 历史（0.6.4 前无 WJ）前缀不再被常规重排识别——用户明示「无线上用户、不适配」。
+
+### 下一步
+
+- 手验：① `## 2024 年度总结` 触发后 `2024` 保留；② 导入带手写 `1.2 ` 编号的文档 → 命令「清理非本插件的标题编号」清掉 → 再自动编号；③ 在「模板 A」白名单编辑器里，当前文件用「模板 B」时面板出现 ⚠ 模板不一致提示。
+- 可选：修 U4（标题前导空白）；放开 explore 对应约束转回归。
+
+### 验证方式
+
+`npm test`（227 passed + 1 skipped）、`npm run test:fuzz`（默认 5000×80 全绿；explore 仅撞 U4）、`npm run lint`、`npm run format:check` 全绿；`npm run build` + `npm run release` 重建 release/。版本 0.6.5→**0.6.6**。
+
+---
+
 ## 2026-06-29 0.6.5 编号区间 + 中英双语 + 路径 GUI 打磨 + 危险区折叠（claude/obsidian-auto-headings-polish-gvq9cf）
 
 ### 做了什么

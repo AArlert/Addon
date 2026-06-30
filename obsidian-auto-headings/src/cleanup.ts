@@ -7,7 +7,7 @@
  */
 
 import { parseHeadings } from "./parser";
-import { stripPrefixBroad } from "./numbering";
+import { stripForeignNumbering, stripPrefixBroad, WORD_JOINER } from "./numbering";
 
 /** {@link clearNumberingContent} 的可选项。 */
 export interface CleanupOptions {
@@ -44,6 +44,38 @@ export function clearNumberingContent(content: string, options: CleanupOptions =
 	for (const h of headings) {
 		const hashes = "#".repeat(h.level);
 		const text = stripPrefixBroad(h.rawText, prefixes, suffixes);
+		lines[h.lineIndex] = `${hashes} ${text}`;
+	}
+	return lines.join("\n");
+}
+
+/**
+ * 剥离内容中**外来 / 手写**（**非本插件写入**）的标题编号前缀，返回清理后的全文（0.6.6，spec §3.10）。
+ *
+ * 与 {@link clearNumberingContent} 的区别：本函数**只动「不含 Word Joiner」的标题**——含 WJ 的是本插件
+ * 自己写的编号，**原样保留不动**；不含 WJ 的标题用 {@link stripForeignNumbering}（覆盖括号 / `第` / 章节
+ * 量词等更多手写惯例）剥一层外来编号。用于「我有一批手写 / 导入的编号，想清掉好让插件接管」的场景
+ * （方案 A 下插件不会自动吸收无 WJ 的手写编号，故提供此主动清理命令）。
+ *
+ * **已知风险**：同 {@link stripForeignNumbering}（以序号样字开头紧跟分隔符的真实标题可能被误剥）。属
+ * 用户主动一次性操作，已接受（spec §3.10）。
+ *
+ * @param content 待清理的 Markdown 文件全文。
+ * @returns 剥除外来编号前缀后的全文；无标题则原样返回。
+ */
+export function clearForeignNumberingContent(content: string): string {
+	const headings = parseHeadings(content);
+	if (headings.length === 0) {
+		return content;
+	}
+	const lines = content.split("\n");
+	for (const h of headings) {
+		// 含 WJ = 本插件写的编号 → 不动（「非本插件」语义）。
+		if (h.rawText.includes(WORD_JOINER)) {
+			continue;
+		}
+		const hashes = "#".repeat(h.level);
+		const text = stripForeignNumbering(h.rawText);
 		lines[h.lineIndex] = `${hashes} ${text}`;
 	}
 	return lines.join("\n");

@@ -16,7 +16,7 @@ import { AutoHeadingsSettingTab } from "./settings/SettingsTab";
 import { getMessages, type Messages, resolveLang } from "./i18n";
 import { readFileSwitch, SWITCH_KEY } from "./frontmatter";
 import { renumberContent, type Template } from "./numbering";
-import { clearNumberingContent } from "./cleanup";
+import { clearForeignNumberingContent, clearNumberingContent } from "./cleanup";
 import { parseHeadings, type Heading } from "./parser";
 import { resolvePathRule } from "./pathrules";
 import { TemplateStore } from "./templates/TemplateStore";
@@ -105,6 +105,15 @@ export default class AutoHeadingsPlugin extends Plugin {
 			name: t.cmdClear,
 			editorCallback: (editor, ctx) => {
 				this.runClearNumbering(editor, ctx);
+			},
+		});
+
+		// 清理非本插件的标题编号：只剥「不含 WJ」的手写 / 外来编号，保留插件自己写的（0.6.6，spec §3.10）。
+		this.addCommand({
+			id: "clear-foreign-numbering",
+			name: t.cmdClearForeign,
+			editorCallback: (editor, ctx) => {
+				this.runClearForeignNumbering(editor, ctx);
 			},
 		});
 
@@ -298,6 +307,47 @@ export default class AutoHeadingsPlugin extends Plugin {
 			editor.transaction({ changes });
 		}
 		new Notice(this.messages().noticeCleared);
+	}
+
+	/**
+	 * 「清理非本插件的标题编号」命令（**手动路径**，0.6.6，见 spec.md §3.10）：只剥**不含 WJ** 的
+	 * 手写 / 外来编号（{@link clearForeignNumberingContent}），保留插件自己写的（带 WJ）编号；以单一
+	 * 事务写回。绕过防抖与开关（与「清除当前文件编号」对称）。
+	 */
+	private runClearForeignNumbering(editor: Editor, ctx: MarkdownView | MarkdownFileInfo): void {
+		const path = ctx.file?.path;
+		if (path) {
+			const existing = this.debounceTimers.get(path);
+			if (existing !== undefined) {
+				window.clearTimeout(existing);
+				this.debounceTimers.delete(path);
+			}
+		}
+
+		const oldContent = editor.getValue();
+		const newContent = clearForeignNumberingContent(oldContent);
+
+		if (newContent === oldContent) {
+			new Notice(this.messages().noticeNoForeign);
+			return;
+		}
+
+		const oldLines = oldContent.split("\n");
+		const newLines = newContent.split("\n");
+		const changes: EditorChange[] = [];
+		for (let i = 0; i < newLines.length; i++) {
+			if (oldLines[i] !== newLines[i]) {
+				changes.push({
+					from: { line: i, ch: 0 },
+					to: { line: i, ch: oldLines[i].length },
+					text: newLines[i],
+				});
+			}
+		}
+		if (changes.length > 0) {
+			editor.transaction({ changes });
+		}
+		new Notice(this.messages().noticeForeignCleared);
 	}
 
 	/**
