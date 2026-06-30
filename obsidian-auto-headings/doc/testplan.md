@@ -278,6 +278,9 @@
 | ~~5~~ | **B3** | `suffix` 同 B2 | 0.3.18（方案A）|
 | ~~6~~ | **B9** | B1–B5 叠加效应 | 0.3.18 |
 | ~~7~~ | **C3** | `numberHeadings` 对 `< topLevel` 标题不剥离，调高 topLevel 后旧前缀成孤儿 | 0.6.0（新增剥离分支）|
+| ~~8~~ | **N1**：改模板样式（如 H2 `一`→`①`）后已编号标题不刷新 | `renumberActiveFile` 用 `getActiveViewOfType(MarkdownView)`，设置面板（模态层）打开时返回 `null` → 静默跳过 | 0.7.2（改遍历 `getLeavesOfType("markdown")` 全部打开叶子，`main.test.ts` 回归）|
+| ~~9~~ | **N2**：点「新增模板」卡顿、新行不第一时间显示、需切换页面 | 新增按钮 `await` 磁盘写入后才 `display()`，慢盘 / 同步库下阻塞 | 0.7.2（`TemplateStore.create` 改同步加内存 + 后台落盘，点击即重绘）|
+| ~~10~~ | **N3**：路径规则**整行**可拖动（妨碍路径输入框选词） | `draggable` 设在整行 `row` 上 | 0.7.2（`draggable` + `dragstart`/`dragend` 移到 `⠿` 手柄，行仅作放置目标）|
 
 ### 3.2 有意取舍（非待修 bug）
 

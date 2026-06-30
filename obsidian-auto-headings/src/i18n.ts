@@ -78,6 +78,7 @@ export interface Messages {
 	templateMissingSuffix: (name: string) => string;
 	clearInputTooltip: string;
 	deleteRuleTooltip: string;
+	dragHandleTooltip: string;
 
 	// —— 模板区 ——
 	templatesHeading: string;
@@ -227,6 +228,7 @@ const zh: Messages = {
 	templateMissingSuffix: (name) => `${name}（已失效）`,
 	clearInputTooltip: "清空此路径",
 	deleteRuleTooltip: "删除此规则",
+	dragHandleTooltip: "拖动以排序",
 
 	templatesHeading: "模板",
 	templatesDesc:
@@ -377,6 +379,7 @@ const en: Messages = {
 	templateMissingSuffix: (name) => `${name} (missing)`,
 	clearInputTooltip: "Clear this path",
 	deleteRuleTooltip: "Delete this rule",
+	dragHandleTooltip: "Drag to reorder",
 
 	templatesHeading: "Templates",
 	templatesDesc:
