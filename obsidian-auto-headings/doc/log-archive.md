@@ -5,6 +5,42 @@
 
 ---
 
+## 2026-06-30 0.7.2 修三个实测 GUI / 触发 bug（改模板不刷新 / 新增模板卡顿 / 整行可拖动）（claude/obsidian-auto-headings-release-lfniw0）
+
+### 背景
+
+用户实测 0.7.1 报三个 bug（其中 N1 导致 backlink 无法实测，因为改模板不触发重排）：
+
+### 做了什么
+
+- **N1 改模板样式后已编号标题不刷新**（一→①，根因，连带 backlink 测不了）：`renumberActiveFile` 原用
+  `getActiveViewOfType(MarkdownView)`，**设置面板是模态层、打开时活动视图常为 `null`** → 静默跳过。
+  改为遍历 **`getLeavesOfType("markdown")` 全部打开叶子**逐个重排（仍按 shouldAutoTrigger + 路径解析模板门控），
+  顺带支持多文件同时刷新。`main.test.ts` 加两条回归（一→①刷新、多叶子同时重排）。
+- **N2 新增模板卡顿 / GUI 不第一时间显示**：新增按钮原 `await templateStore.create()`（含磁盘写入）后才
+  `display()`，慢盘 / 同步库阻塞。`TemplateStore.create` 改**同步加内存 + 后台落盘**（`void write().catch()`），
+  点击即重绘；落盘失败仅退化为「重启丢该模板」，无破坏。按钮 onClick 去掉 await。
+- **N3 路径规则整行可拖动**：`draggable` 原设在整行 `row`（妨碍路径输入框选词）。改为 `draggable` +
+  `dragstart`/`dragend` 只挂 `⠿` 手柄，行仅作放置目标（dragover/drop 不变）。新增 i18n `dragHandleTooltip`。
+
+### 没做什么
+
+- 未碰编号引擎 / backlink 核心（纯触发层 + GUI + TemplateStore）。
+- 白名单预览的 `currentFileHeadings/currentFilePath` 仍用 `getActiveViewOfType`（同源潜在问题，但未被报告、
+  且「当前文件」预览语义在多叶子下本就模糊，留观察）。
+
+### 下一步
+
+1. 用户重测：改模板样式即时刷新 → 进而**实测 M11**（WJ 链接能否被 Obsidian 解析，1.0 前必验）。
+2. 无碍后英文 README → bump 1.0.0 → 提交社区 PR。
+
+### 验证方式
+
+- `npm test` 258 passed（+2）；lint / format / build / release 全绿。
+- N1 回归：`main.test.ts` 改样式后 `## 一 ⁠章`→`## ① ⁠章`、多叶子各自 `## 1 ⁠X`。
+
+---
+
 ## 2026-06-30 0.7.1 Backlink 同步落地（M7 核心，opt-in 默认关）+ UVM 纳入往返不变量（claude/obsidian-auto-headings-release-lfniw0）
 
 ### 背景

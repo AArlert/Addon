@@ -76,6 +76,21 @@
  * {@link World.checkBacklinkRoundTrip}：对每次触发的「编号前→后」文本，断言 `src/backlinks.ts` 的
  * **改名表幂等** + **链接重写往返一致**（指向旧标题的 `[[Target#旧]]` 重写后恰指向同一标题的新名）。
  * 两种 oracle 都跑（纯属文本性质），在整个随机编号空间里压测 backlink 核心；新增覆盖率 bin `backlink-rename`。
+ *
+ * ## 0.7.5 升级：纳入「清除命令」与「两层触发门控」（扩展蓝图阶段 1，见 testplan §4.1）
+ *
+ * 把更多**真实用户操作**纳入激励空间，原框架只压 `renumberContent`，现补两类：
+ * - **缺口①清除命令**：新增激励 {@link OpKind clearNumbering}（`clearNumberingContent`）/
+ *   {@link OpKind clearForeign}（`clearForeignNumberingContent`），并配两条记分板——
+ *   **S4 清除还原律**（清除编号 → 还原裸文档）+ **S5 清外来不动律**（清外来 → 不动自家 WJ 编号）。
+ *   只在「裸文档为 clear 定点」时施加（排除自食/外来样标题），且**仅参考模式**（explore 的 mutatePrefix
+ *   故意抹 WJ，此后清外来剥掉残缺前缀属预期，见 testplan §3.2 S5b）。
+ * - **缺口②两层触发门控**：新增 {@link OpKind setFrontmatterSwitch}（true/false/非法/删除）/
+ *   {@link OpKind setAutoNumber}，触发分**手动**（{@link OpKind manualTrigger}，绕过门控）/**自动**
+ *   （`trigger`，过真实 {@link readFileSwitch} + 全局开关的 `shouldAutoTrigger`）。**S6 门控**：门控关时
+ *   `rendered` 冻结、且真实开关解析与结构化 fm 状态一致（{@link World.checkGate}）。
+ *
+ * 8000×80 两记分板全绿、**未发现引擎 bug**。阶段 2（World→Vault 多文件多模板 + S7）待做。
  */
 
 import {
@@ -94,6 +109,8 @@ import {
 	linkAnchor,
 	rewriteBacklinksInContent,
 } from "../../../src/backlinks";
+import { clearForeignNumberingContent, clearNumberingContent } from "../../../src/cleanup";
+import { readFileSwitch } from "../../../src/frontmatter";
 import { Rng } from "./rng";
 
 /** 文档的一行：标题（级别 + 裸标题文本）或原样行（正文 / 代码块栅栏 / 块内行）。 */
@@ -264,7 +281,15 @@ export type OpKind =
 	| "setSkipFill"
 	| "setAncestor"
 	| "setWhitelist"
+	| "setFrontmatterSwitch"
+	| "setAutoNumber"
+	| "clearNumbering"
+	| "clearForeign"
+	| "manualTrigger"
 	| "trigger";
+
+/** frontmatter 单文件开关的结构化状态（驱动两层触发门控，见 {@link World.checkGate}）。 */
+type FrontmatterState = "none" | "true" | "false" | "illegal";
 
 /** 功能覆盖率收集器（UVM functional coverage）：确认随机真的撞到了关心的场景。 */
 export class Coverage {
@@ -304,6 +329,20 @@ export class Coverage {
 	inheritWithAffix = false;
 	/** 曾发生过标题锚点改名（编号改写标题 → Backlink 改名表非空，M7）。 */
 	backlinkRename = false;
+	/** 两层门控（缺口②）：曾因 frontmatter / 全局开关把自动触发门控关掉（rendered 冻结）。 */
+	gatedOff = false;
+	/** 曾设过 frontmatter 开关的各值（驱动真实 readFileSwitch + shouldAutoTrigger）。 */
+	fmFalse = false;
+	fmTrue = false;
+	fmIllegal = false;
+	/** 曾在「全局自动编号=关」下走自动触发（应被冻结）。 */
+	autoNumberOffTrigger = false;
+	/** 曾走过手动触发路径（绕过门控，对应「立即重新编号」命令）。 */
+	manualTriggered = false;
+	/** 清除还原律 S4 曾被断言（清除当前文件编号 → 还原裸文档，缺口①）。 */
+	clearRestore = false;
+	/** 清外来不动律 S5 曾被断言（清理外来编号 → 自家 WJ 编号不动，缺口①）。 */
+	clearForeignNoop = false;
 	triggers = 0;
 
 	bumpOp(kind: OpKind): void {
@@ -332,6 +371,11 @@ export class Coverage {
 			"setSkipFill",
 			"setAncestor",
 			"setWhitelist",
+			"setFrontmatterSwitch",
+			"setAutoNumber",
+			"clearNumbering",
+			"clearForeign",
+			"manualTrigger",
 			"trigger",
 		];
 		for (const op of allOps) {
@@ -360,6 +404,15 @@ export class Coverage {
 		if (!this.selfEatingTitle) missing.push("self-eating-title");
 		if (!this.inPlaceEdited) missing.push("in-place-edit");
 		if (!this.backlinkRename) missing.push("backlink-rename");
+		// 缺口①②新增 bin。
+		if (!this.gatedOff) missing.push("gated-off");
+		if (!this.fmFalse) missing.push("fm=false");
+		if (!this.fmTrue) missing.push("fm=true");
+		if (!this.fmIllegal) missing.push("fm=illegal");
+		if (!this.autoNumberOffTrigger) missing.push("autoNumber-off-trigger");
+		if (!this.manualTriggered) missing.push("manual-trigger");
+		if (!this.clearRestore) missing.push("clear-restore(S4)");
+		if (!this.clearForeignNoop) missing.push("clear-foreign-noop(S5)");
 		return missing;
 	}
 }
@@ -398,6 +451,15 @@ export class World {
 	/** 本序列的标题取样池；方案 A 后不再回避「数字/字母起头」标题（恒含空前缀候选 → 对称处理）。 */
 	private readonly titlePool: string[];
 	private readonly trace: string[] = [];
+	/**
+	 * 两层触发门控状态（缺口②）：
+	 * - {@link frontmatterState}：单文件开关的结构化真值（驱动真实 {@link readFileSwitch}）。
+	 * - {@link autoNumber}：全局自动编号面板开关。
+	 * 自动触发须过 `shouldAutoTrigger`（fm:false→关；fm:true→开；缺省/非法→跟随 autoNumber）；
+	 * 手动触发（「立即重新编号」）绕过门控。
+	 */
+	private frontmatterState: FrontmatterState = "none";
+	private autoNumber = true;
 
 	constructor(
 		private readonly rng: Rng,
@@ -430,6 +492,35 @@ export class World {
 			{ kind: "heading", level: Math.max(topLevel, 2), title: rng.pick(this.titlePool) },
 		];
 		this.rendered = this.bare.map(serializeLine);
+		// 起始门控随机：约一半序列从「全局关」或带 frontmatter 开关起步，确保门控空间被覆盖。
+		this.autoNumber = rng.chance(0.5);
+		const startFm: FrontmatterState[] = ["none", "none", "true", "false", "illegal"];
+		this.frontmatterState = rng.pick(startFm);
+	}
+
+	/** 把结构化 frontmatter 状态渲染成实际的 `---` 块行（none 时为空块）。 */
+	private frontmatterLines(): string[] {
+		if (this.frontmatterState === "none") {
+			return [];
+		}
+		const value =
+			this.frontmatterState === "true"
+				? "true"
+				: this.frontmatterState === "false"
+					? "false"
+					: "ON"; // illegal：旧版文本值，readFileSwitch 按非法 → null 处理。
+		return ["---", `obsidian-auto-headings: ${value}`, "---"];
+	}
+
+	/** 组合「frontmatter + 编辑器正文」的完整文件文本（供真实 readFileSwitch 读单文件开关）。 */
+	private composeFull(): string {
+		const fm = this.frontmatterLines();
+		return fm.length ? [...fm, ...this.rendered].join("\n") : this.rendered.join("\n");
+	}
+
+	/** 当前序列的剥离选项（清除命令与剥离器共用同一前后缀并集）。 */
+	private get cleanupOpts(): { strippablePrefixes: string[]; strippableSuffixes: string[] } {
+		return this.opts;
 	}
 
 	/** 随机生成一组白名单条目（0–2 条，词去重，匹配方式随机）。 */
@@ -479,7 +570,8 @@ export class World {
 	step(): void {
 		const r = this.rng.next();
 		if (r < 0.35) {
-			this.trigger();
+			// 触发分两路（缺口②）：约 30% 走手动（「立即重新编号」，绕过门控），其余走自动（受门控）。
+			this.trigger(this.rng.chance(0.3));
 		} else if (r < 0.65) {
 			this.edit();
 		} else {
@@ -487,9 +579,9 @@ export class World {
 		}
 	}
 
-	/** 收尾：强制触发一次并校验，确保每条序列至少结算一次。 */
+	/** 收尾：强制**手动**触发一次并校验，确保每条序列至少有效结算一次（不被门控冻结）。 */
 	finish(): void {
-		this.trigger();
+		this.trigger(true);
 	}
 
 	// ── 编辑类激励 ───────────────────────────────────────────────────────────
@@ -502,6 +594,12 @@ export class World {
 			"retitle",
 			"changeLevel",
 		];
+		// 清除命令 S4/S5 是「干净空间」不变量（rendered 全是插件自写的 WJ 前缀时才成立），故仅在
+		// 参考模式纳入。explore 模式的 mutatePrefix 会**故意抹掉 WJ**，此后「清外来」把失去 WJ 的前缀
+		// 当外来编号剥掉是预期行为（非 bug）——S5 的「无操作」前提随之不成立，故 explore 不施加清除命令。
+		if (this.cfg.oracle === "reference") {
+			choices.push("clearNumbering", "clearForeign");
+		}
 		if (this.cfg.inPlaceEdit) choices.push("editTitleInPlace");
 		if (this.cfg.manualPrefixEdit) choices.push("mutatePrefix");
 		const kind = this.rng.pick(choices);
@@ -661,8 +759,67 @@ export class World {
 				}
 				break;
 			}
+			case "clearNumbering": {
+				this.clearNumbering();
+				break;
+			}
+			case "clearForeign": {
+				this.clearForeign();
+				break;
+			}
 		}
 		this.cov.bumpOp(kind);
+	}
+
+	/**
+	 * 「清除当前文件编号」命令（缺口①，DUT = {@link clearNumberingContent}）+ **S4 清除还原律**。
+	 *
+	 * 只在「裸文档本身是 clear 的定点」（`clearNumbering(bare)===bare`，即不含会被全样式并集剥离器
+	 * 误吃的自食/外来样标题）时施加并断言：清除当前 `rendered`（可能含历史前缀）必还原成裸文档。
+	 * 守卫排除自食前缀（spec §2.3 取舍）与白名单豁免——它们让「裸」本身就不是 clear 定点，断言不成立。
+	 * 施加后 `rendered` 与裸文档锁步（参考模型在后续触发仍恒成立）。
+	 */
+	private clearNumbering(): void {
+		const bareText = serialize(this.bare);
+		if (clearNumberingContent(bareText, this.cleanupOpts) !== bareText) {
+			return; // 裸文档非 clear 定点（自食/外来样标题）→ 排除出 S4 断言。
+		}
+		const got = clearNumberingContent(this.rendered.join("\n"), this.cleanupOpts);
+		if (got !== bareText) {
+			throw new SequenceError(
+				this.seed,
+				this.trace,
+				`S4 清除还原律失败：清除编号后未还原裸文档\n  清除得 : ${JSON.stringify(got)}\n  裸文档 : ${JSON.stringify(bareText)}`,
+			);
+		}
+		this.rendered = got.split("\n");
+		this.cov.clearRestore = true;
+		this.trace.push("— clearNumbering (S4) —");
+	}
+
+	/**
+	 * 「清理非本插件编号」命令（缺口①，DUT = {@link clearForeignNumberingContent}）+ **S5 清外来不动律**。
+	 *
+	 * 只在「裸文档是 foreign-clear 的定点」（`clearForeign(bare)===bare`）时断言：清外来对当前 `rendered`
+	 * 是**无操作**——自家 WJ 编号被跳过、裸态标题既是 foreign 定点也不被动。守卫排除「裸标题恰像外来编号」
+	 * （如 `2024 总结`）的情形。无操作故不改 `rendered`，锁步不变。
+	 */
+	private clearForeign(): void {
+		const bareText = serialize(this.bare);
+		if (clearForeignNumberingContent(bareText) !== bareText) {
+			return; // 裸标题像外来编号 → 排除出 S5 断言。
+		}
+		const cur = this.rendered.join("\n");
+		const got = clearForeignNumberingContent(cur);
+		if (got !== cur) {
+			throw new SequenceError(
+				this.seed,
+				this.trace,
+				`S5 清外来不动律失败：清理外来编号动了自家 WJ 编号\n  清理前 : ${JSON.stringify(cur)}\n  清理后 : ${JSON.stringify(got)}`,
+			);
+		}
+		this.cov.clearForeignNoop = true;
+		this.trace.push("— clearForeign (S5) —");
 	}
 
 	// ── 配置类激励（在约束内）─────────────────────────────────────────────────
@@ -681,6 +838,8 @@ export class World {
 			"setSkipFill",
 			"setAncestor",
 			"setWhitelist",
+			"setFrontmatterSwitch",
+			"setAutoNumber",
 		];
 		if (affixEmptyNow || this.cfg.allowInheritWithAffix) choices.push("setInherit");
 		const kind = this.rng.pick(choices);
@@ -792,23 +951,77 @@ export class World {
 				this.trace.push(`setWhitelist ${JSON.stringify(wl)}`);
 				break;
 			}
+			case "setFrontmatterSwitch": {
+				// 缺口②：改单文件开关（true/false/非法/删除），驱动真实 readFileSwitch + 门控。
+				const next = this.rng.pick<FrontmatterState>(["none", "true", "false", "illegal"]);
+				this.frontmatterState = next;
+				if (next === "false") this.cov.fmFalse = true;
+				else if (next === "true") this.cov.fmTrue = true;
+				else if (next === "illegal") this.cov.fmIllegal = true;
+				this.trace.push(`setFrontmatterSwitch ${next}`);
+				break;
+			}
+			case "setAutoNumber": {
+				// 缺口②：切换全局自动编号面板开关。
+				this.autoNumber = this.rng.chance(0.5);
+				this.trace.push(`setAutoNumber ${this.autoNumber}`);
+				break;
+			}
 			default:
 				break;
 		}
 		this.cov.bumpOp(kind);
 	}
 
-	// ── 触发（DUT）+ 记分板（参考模型）────────────────────────────────────────
-	private trigger(): void {
+	/**
+	 * **门控记分板 S6**（缺口②）：用真实 {@link readFileSwitch} 解析当前 frontmatter，断言其结果与本框架
+	 * 设定的结构化状态 {@link frontmatterState} 一致（true→true / false→false / none·illegal→null）。
+	 * 这把真实的单文件开关解析器（含引号剥离、非法值兜底）纳入随机 frontmatter 空间压测。
+	 */
+	private checkGate(sw: boolean | null): void {
+		const expected =
+			this.frontmatterState === "true"
+				? true
+				: this.frontmatterState === "false"
+					? false
+					: null; // none / illegal → 跟随全局开关（readFileSwitch 返回 null）。
+		if (sw !== expected) {
+			throw new SequenceError(
+				this.seed,
+				this.trace,
+				`S6 门控解析不一致：frontmatter=${this.frontmatterState} 时 readFileSwitch=${JSON.stringify(
+					sw,
+				)} ≠ 期望 ${JSON.stringify(expected)}`,
+			);
+		}
+	}
+
+	// ── 触发（DUT）+ 记分板（参考模型 + 两层门控 S6）──────────────────────────
+	/**
+	 * @param manual 手动触发（「立即重新编号」命令）绕过门控；自动触发须过 `shouldAutoTrigger`。
+	 */
+	private trigger(manual: boolean): void {
+		// 两层门控（缺口②）：自动路径由真实 readFileSwitch + 全局开关决定是否放行；手动路径恒放行。
+		const sw = readFileSwitch(this.composeFull());
+		this.checkGate(sw);
+		const gateOpen = manual || (sw === false ? false : sw === true ? true : this.autoNumber);
+		if (!gateOpen) {
+			// 门控关：自动触发不应用任何改动，rendered 冻结（S6 冻结律的行为体现）。
+			this.cov.gatedOff = true;
+			if (sw !== true && !this.autoNumber) this.cov.autoNumberOffTrigger = true;
+			this.trace.push(`— autoTrigger gated-off (fm=${this.frontmatterState}) —`);
+			return;
+		}
+		if (manual) this.cov.manualTriggered = true;
 		if (this.template.levels.h2.prefix !== "" || this.template.levels.h2.suffix !== "") {
 			this.cov.affixNonEmptyTrigger = true;
 		}
 		const before = this.rendered.join("\n");
 		const after = renumberContent(before, this.template, this.opts);
 		this.rendered = after.split("\n");
-		this.cov.bumpOp("trigger");
+		this.cov.bumpOp(manual ? "manualTrigger" : "trigger");
 		this.cov.triggers++;
-		this.trace.push("— trigger —");
+		this.trace.push(manual ? "— manualTrigger —" : "— autoTrigger —");
 		this.detectLevelJump();
 		this.detectWhitelistCoverage();
 		// Backlink 改名表 + 链接重写往返不变量（M7，两种 oracle 均跑：纯属 before→after 文本性质）。

@@ -110,27 +110,31 @@ AAH_FUZZ_SEED=9 AAH_FUZZ_RUNS=1 AAH_FUZZ_OPS=60 npx vitest run tests/dev_tests/r
 2. 若新维度可能触达**已知 bug**，先加相应**约束**（并在上表登记对应 testplan ID），保持 CI 绿。
 3. 跑 `npm run test:fuzz` 几轮确认不误报，再提交。
 
-## 升级蓝图：把「用户全部操作」纳入验证（规划中，未实现）★
+## 升级蓝图：把「用户全部操作」纳入验证（阶段 1 已落地，阶段 2 待做）★
 
-> **本节是待评审方案，不是已落地代码。** 现框架把「用户」抽象成**单文件、单模板、不停手动重排**的人，
-> 三块记分板只压 `renumberContent` 一个纯函数。但插件实际暴露给用户的操作面远大于此——见
-> `doc/testplan.md` §4.1 的「人类操作全清单 × UVM 覆盖状态」（含完整缺口表与约束模型）。这里给实现者一份摘要。
+> **进度（0.7.5）**：**阶段 1 已实现并随 8000×80 全绿**——缺口①（清除命令 S4/S5）、缺口②（两层触发门控
+> S6）已纳入本框架；缺口③（多文件 + 多模板 + 路径规则，S7）属结构性升级，仍为阶段 2。下表标 ✅ 者已落地。
+> 完整缺口表与约束模型见 `doc/testplan.md` §4.1。这里给实现者一份摘要。
 
-**四大缺口（零覆盖 / 近似覆盖）**：
+**四大缺口**：
 
-1. **清除命令**（`clearNumberingContent` / `clearForeignNumberingContent`）——整个 DUT 家族没进过激励空间。
-2. **两层触发门控**（frontmatter 开关 × 全局 `autoNumber`）——UVM 永远无条件触发，从不走 `shouldAutoTrigger`。
-3. **多模板 + 路径规则 + 多文件**——真实 `strippableAffixes()` 全模板并集从未被跑到（现用 `["",候选]` 假并集）。
-4. **Backlink 开关门控**——`updateBacklinks=false` 时不触碰引用方，未在随机空间建模。
+1. ✅ **清除命令**（`clearNumberingContent` / `clearForeignNumberingContent`）——已纳入激励空间（0.7.5）。
+2. ✅ **两层触发门控**（frontmatter 开关 × 全局 `autoNumber`）——已建模手动/自动分路 + 真实 `readFileSwitch`（0.7.5）。
+3. 🔲 **多模板 + 路径规则 + 多文件**——真实 `strippableAffixes()` 全模板并集仍未跑到（现用 `["",候选]` 假并集）。阶段 2。
+4. 🔲 **Backlink 开关门控**——`updateBacklinks=false` 时不触碰引用方，仍未在随机空间建模。阶段 2。
 
 **四条新记分板（恒成立不变量）**：
 
-| ID                    | 不变量                                                                                           |
-| --------------------- | ------------------------------------------------------------------------------------------------ |
-| **S4** 清除还原律     | `clearNumberingContent(renumberContent(bare)) === bare`（自食标题 / 白名单豁免按设计排除）       |
-| **S5** 清外来不动律   | `clearForeignNumberingContent(renumberContent(bare)) === renumberContent(bare)`（WJ 边界正确性） |
-| **S6** 门控冻结律     | autoTrigger 在 `shouldAutoTrigger=false` 时 `rendered` 不变                                      |
-| **S7** 模板解析稳定律 | rename / 删模板降级改投后 `resolvePathRule(file)` 仍指向预期模板、旧前缀仍可剥净                 |
+| ID                    | 不变量                                                                                           | 状态      |
+| --------------------- | ------------------------------------------------------------------------------------------------ | --------- |
+| **S4** 清除还原律     | `clearNumberingContent(renumberContent(bare)) === bare`（裸为 clear 定点时施加，仅参考模式）     | ✅ 0.7.5  |
+| **S5** 清外来不动律   | `clearForeignNumberingContent(renumberContent(bare)) === renumberContent(bare)`（WJ 边界正确性） | ✅ 0.7.5  |
+| **S6** 两层门控       | 真实 `readFileSwitch` + 全局开关决定自动放行（手动绕过）；门控关时 `rendered` 冻结、fm 解析一致  | ✅ 0.7.5  |
+| **S7** 模板解析稳定律 | rename / 删模板降级改投后 `resolvePathRule(file)` 仍指向预期模板、旧前缀仍可剥净                 | 🔲 阶段 2 |
+
+> **实测边界（0.7.5）**：S4/S5 仅在参考（干净）模式施加——explore 的 `mutatePrefix` 会故意抹掉 WJ，此后
+> 「清外来」剥掉失去 WJ 的残缺前缀属**预期**（用户破坏了编号、插件认不出自家），S5「无操作」前提随之不成立。
+> 见 `doc/testplan.md` §3.2 取舍表 S5b。
 
 **结构升级**：`World`（单文件单模板）→ `Vault`（`files` Map + 真实 `templates[]` + `pathRules[]` + `autoNumber/updateBacklinks` 门控）；
 新增 `OpKind`：`setFrontmatterSwitch`、`clearNumbering`、`clearForeign`、`manualRenumber`、`setAutoNumber`、`setBacklinkSync`、

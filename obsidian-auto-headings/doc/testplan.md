@@ -289,6 +289,7 @@
 |----|------|------|----------|
 | L1 | 某级从字母样式改走，且此后无任何级别再用字母 | 旧 `a)` / `A)` 剥不掉、会叠加 | 字母不在 `ALWAYS_STRIPPABLE_STYLES`，避免把「API」「TODO」等英文起头标题误吞 |
 | P1 | 裸标题以数字起头（`## 2024 年度总结`），**首次**编号 | `2024 ` 被剥掉 → `## 1 年度总结` | 无状态引擎分不清插件前缀与用户正文。推荐方案（模板级 opt-in WJ 标记）列入 M7 backlog，本轮不实现（spec §2.4）|
+| S5b | 用户**手动破坏**已编号前缀（删字符 / 去掉 WJ 空格）后，跑「清理非本插件编号」| 失去 WJ 的残缺前缀被当外来编号剥掉 | 插件靠 WJ 认自家编号；用户抹掉 WJ 后插件**认不出**是自家的，按外来处理属预期。故 UVM 的 S5「清外来无操作」律仅在参考（干净）模式断言，explore 模式（`mutatePrefix` 故意破坏 WJ）不施加清除命令（0.7.5，见 §4.1.3）|
 
 ### 3.3 UVM 压测发现的 bug（§4）
 
@@ -317,10 +318,12 @@
 
 状态转移 bug 的组合是**爆炸**的，手写穷举不现实。引入借鉴硬件验证 **UVM** 的**约束随机序列**框架（`tests/dev_tests/uvm/`，入口 `random_sequence.test.ts`）：随机生成「编辑文本 / 改模板 / 触发编号」的长序列，用**记分板**自动判对错，并以**功能覆盖率**确认真撞到了关心的场景。随 `npm test` 默认跑 500 条×60 步（<2s），重型用 `npm run test:fuzz`。
 
-**三个记分板互补**：
+**记分板互补**（0.7.5 起在原三块上新增 S4/S5/S6，见 §4.1）：
 - **参考记分板**（默认模式，常绿）：维护「裸文档真值 `bare`」与「编辑器文本 `rendered`」锁步状态，每次触发后断言 `join(rendered) === renumberContent(serialize(bare), 当前模板)`——旧前缀剥干净时相等，任何叠加/残留当场被抓。
 - **幂等性记分板**（explore 模式）：断言 `renumber(renumber(x)) === renumber(x)`，恒成立与配置无关，专逮「再触发就变样」的多次侵蚀（U1 正是它逮到的）。
 - **Backlink 往返记分板**（M7，两种模式都跑）：每次触发后对「编号前→后」文本断言 `src/backlinks.ts` 的**改名表幂等**（`computeHeadingRenames(after, after)` 为空）+ **链接重写往返一致**（指向旧标题的 `[[Target#旧]]` 重写后恰指向同一标题的新名）。在整个随机编号空间压测 backlink 核心；覆盖率新增 `backlink-rename` bin。8000×80 全绿。
+- **S4 清除还原 / S5 清外来不动**（0.7.5，缺口①，参考模式）：把清除命令 `clearNumberingContent`/`clearForeignNumberingContent` 纳入激励空间，断言「清除编号还原裸文档」「清外来不动自家 WJ 编号」（裸文档为 clear 定点时施加）。
+- **S6 两层门控**（0.7.5，缺口②，两种模式）：用真实 `readFileSwitch` + 全局 `autoNumber` 决定自动触发是否放行（手动触发绕过），断言门控关时 `rendered` 冻结、且真实开关解析与结构化 fm 状态一致。8000×80 两记分板全绿、未发现引擎 bug。
 
 **约束 = 当前 strip 健壮性的精确刻画**（每条默认模式约束对应一个已登记 bug/取舍，故 CI 常绿；explore 模式放开全部约束、改用幂等性记分板专门找 bug）：
 
@@ -337,23 +340,25 @@
 >
 > 详见 `tests/dev_tests/uvm/README.md`。
 
-### 4.1 扩展蓝图：把「用户全部操作」纳入验证（规划 / 待评审，未实现）★
+### 4.1 扩展蓝图：把「用户全部操作」纳入验证（阶段 1 已落地，阶段 2 待做）★
 
-> **本节是方案，不是已实现的测试。** 现框架把「用户」抽象成了**单文件、单模板、不停手动重排**的人——
-> 激励空间 `OpKind` 只含「单文档文本编辑 + 单模板字段配置 + trigger」，三块记分板**全部只压
-> `renumberContent` 一个纯函数**。但插件展现给用户的操作面远大于此。本蓝图把**真实人类会触及的
-> 全部操作**逐一映射进 UVM，并为每个缺口配一条**恒成立的新不变量**。实现按 §4.1.5 分阶段。
+> **进度（0.7.5）**：**阶段 1 已实现并随 8000×80 全绿**——缺口①（清除命令 S4/S5）、缺口②（两层触发
+> 门控 S6）已纳入 `framework.ts` 激励空间与记分板；缺口③（多文件 + 多模板 + 路径规则）属结构性升级，
+> 仍为阶段 2 规划。下表「现状」列已据此更新。
+>
+> 现框架原把「用户」抽象成了**单文件、单模板、不停手动重排**的人。本蓝图把**真实人类会触及的全部操作**
+> 逐一映射进 UVM，并为每个缺口配一条**恒成立的新不变量**。实现按 §4.1.5 分阶段。
 
 #### 4.1.1 人类操作全清单 × UVM 覆盖状态
 
 | 面 | 操作 | DUT / 语义 | 现状 |
 |----|------|-----------|------|
 | 编辑器 | 增删标题/正文/代码块、改标题文本、改层级 | `renumberContent` | ✅ 已覆盖 |
-| 编辑器 | 改 frontmatter 开关 `obsidian-auto-headings: true/false/非法/删除` | `readFileSwitch`→`shouldAutoTrigger` | ❌ 没建模（UVM 无条件触发）|
-| 命令 | 立即重新编号（手动路径，绕过开关/防抖）| `renumberContent` | ⚠️ 等价 trigger，但未区分手动/自动路径 |
-| 命令 | **清除当前文件编号** | `clearNumberingContent`（全样式并集，独立模板）| ❌ 整个 DUT 没进激励空间 |
-| 命令 | **清理非本插件编号**（WJ 感知）| `clearForeignNumberingContent` | ❌ 同上 |
-| 命令/面板 | 切换全局自动编号 `autoNumber` | 门控 `shouldAutoTrigger` | ❌ 没建模（永远当作「开」）|
+| 编辑器 | 改 frontmatter 开关 `obsidian-auto-headings: true/false/非法/删除` | `readFileSwitch`→`shouldAutoTrigger` | ✅ 已建模（`setFrontmatterSwitch` + S6，0.7.5）|
+| 命令 | 立即重新编号（手动路径，绕过开关/防抖）| `renumberContent` | ✅ 区分手动/自动路径（`manualTrigger` vs `trigger`，0.7.5）|
+| 命令 | **清除当前文件编号** | `clearNumberingContent`（全样式并集，独立模板）| ✅ 已建模（`clearNumbering` 激励 + S4，0.7.5）|
+| 命令 | **清理非本插件编号**（WJ 感知）| `clearForeignNumberingContent` | ✅ 已建模（`clearForeign` 激励 + S5，0.7.5）|
+| 命令/面板 | 切换全局自动编号 `autoNumber` | 门控 `shouldAutoTrigger` | ✅ 已建模（`setAutoNumber` + S6 门控，0.7.5）|
 | 面板 | 切换 Backlink 同步开关 `updateBacklinks` | 门控 `syncBacklinks` | ⚠️ 往返已压，门控未建模 |
 | 面板 | 防抖滑块/重置、语言下拉 | 时序 / 文案 | 🚫 不入 UVM（无文本语义，留手验）|
 | 路径规则 | 增/删/改 pattern、改规则模板、拖拽排序、加根规则 | `resolvePathRule` | ❌ 没建模（UVM 只有一个隐式模板）|
@@ -375,15 +380,19 @@
 
 #### 4.1.3 新增不变量（恒成立的记分板）
 
-| ID | 不变量 | 逮什么 |
-|----|--------|--------|
-| **S4** 清除还原律 | `clearNumberingContent(renumberContent(bare)) === bare` | 编号器写的 WJ 前缀，全样式并集剥离器须能剥净还原（自食标题/白名单豁免按设计排除）|
-| **S5** 清外来不动律 | `clearForeignNumberingContent(renumberContent(bare)) === renumberContent(bare)` | 自家 WJ 编号不被「清外来」误碰（WJ 边界正确性）|
-| **S6** 门控冻结律 | autoTrigger 在 `shouldAutoTrigger=false`（fm:false 或全局关且非 fm:true）时 rendered 不变 | 门控误放行 / 冻结失效 |
-| **S7** 模板解析稳定律 | rename / 删模板降级改投后，`resolvePathRule(file)` 仍指向预期模板、旧前缀仍可剥净 | 规则同步漏改 / 解析分叉 |
+| ID | 不变量 | 逮什么 | 状态 |
+|----|--------|--------|------|
+| **S4** 清除还原律 | `clearNumberingContent(renumberContent(bare)) === bare` | 编号器写的 WJ 前缀，全样式并集剥离器须能剥净还原 | ✅ 已实现（0.7.5，8000×80 全绿）|
+| **S5** 清外来不动律 | `clearForeignNumberingContent(renumberContent(bare)) === renumberContent(bare)` | 自家 WJ 编号不被「清外来」误碰（WJ 边界正确性）| ✅ 已实现（0.7.5，8000×80 全绿）|
+| **S6** 门控冻结律 | autoTrigger 在 `shouldAutoTrigger=false`（fm:false 或全局关且非 fm:true）时 rendered 不变；真实 `readFileSwitch` 解析与结构化 fm 状态一致 | 门控误放行 / 冻结失效 / fm 解析错 | ✅ 已实现（0.7.5，8000×80 全绿）|
+| **S7** 模板解析稳定律 | rename / 删模板降级改投后，`resolvePathRule(file)` 仍指向预期模板、旧前缀仍可剥净 | 规则同步漏改 / 解析分叉 | 🔲 阶段 2 |
 
-> S4/S5 的排除项须经 explore 实测确立（自食前缀 `SELF_EATING`、白名单豁免、空标题等可能让等式不成立，
-> 与现 backlink 往返记分板对「空锚点 / 歧义」的排除同理）。
+> **S4/S5 的排除项（实测确立，0.7.5）**：只在「裸文档本身是 clear 的定点」（`clearNumbering(bare)===bare`
+> / `clearForeign(bare)===bare`）时施加并断言——这自动排除自食前缀（`2024 总结`）、白名单豁免（裸态命中）、
+> 像外来编号的裸标题等让等式天然不成立的情形，与现 backlink 往返记分板对「空锚点 / 歧义」的排除同理。
+> **S4/S5 仅在参考（默认）模式施加**：explore 模式的 `mutatePrefix` 会**故意抹掉 WJ**，此后「清外来」把
+> 失去 WJ 的前缀当外来编号剥掉属**预期行为**（用户手动破坏了编号、插件认不出是自家的），S5「无操作」前提
+> 随之不成立——故 explore 不施加清除命令（见 §3.2 取舍表）。
 
 #### 4.1.4 框架升级设计（World → Vault）
 
@@ -417,8 +426,11 @@ World（单文件单模板）  →  Vault（多文件 + 多模板 + 路径规则
 
 #### 4.1.5 分阶段实现
 
-- **阶段 1（高价值，可在单 `World` 内增量）**：清除命令新激励 + **S4/S5** + 两层门控 + **S6**。
-- **阶段 2（结构性）**：`World→Vault` 多文件/多模板/路径规则/模板生命周期 + **S7** + 真实并集。
+- **阶段 1（高价值，可在单 `World` 内增量）✅ 已完成（0.7.5）**：清除命令新激励（`clearNumbering`/`clearForeign`）
+  + **S4/S5** + 两层门控（`setFrontmatterSwitch`/`setAutoNumber` + 手动/自动 trigger 分路）+ **S6**。
+  新增覆盖率 bin（gated-off / fm=false·true·illegal / autoNumber-off-trigger / manual-trigger /
+  clear-restore(S4) / clear-foreign-noop(S5)）在 500×60 默认运行闭合；8000×80 两记分板全绿、**未发现引擎 bug**。
+- **阶段 2（结构性）🔲 待做**：`World→Vault` 多文件/多模板/路径规则/模板生命周期 + **S7** + 真实并集。
 - **明确不入 UVM**（留 `main.test` 集成 / `user_tests` 手验）：防抖时序(J1–J3)、光标选区(J6)、
   拖拽/补全/滚动/折叠 DOM(L4–L8)、语言文案、白名单命中预览、`getBacklinksForFile` 半公开 API 适配。
 
