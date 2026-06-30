@@ -1137,3 +1137,50 @@ describe("结束编号层级 bottomLevel（M6：编号区间下界）", () => {
 		expect(previewLevel(tpl, 1)).toEqual([]); // 超上界（低于 top）
 	});
 });
+
+describe("U4：标题正文含 WJ 后前导空白时幂等（回归，testplan §3.2）", () => {
+	// 根因：stripPrefix 按 WJ 精确剥离后，正文带前导空格（来自脏编辑/破坏前缀的残留）。
+	// 白名单/超界分支写出 `${hashes} ${text}`，一个 hashes 后空格 + 前导空格 = 多余空格；
+	// 下次 parser `[ \t]+` 贪婪吞掉这些空格，rawText 不同 → 非幂等。
+	// 修：stripHeadingPrefix 及超界 text 均追加 .replace(/^\s+/, "") 去首白。
+
+	it("白名单分支：WJ 后有前导空格，连续触发幂等且输出无前导空白", () => {
+		const content = `## 1 ${WORD_JOINER}  - X`;
+		const template: Template = {
+			...DEFAULT_TEMPLATE,
+			whitelist: [{ text: "- X", match: "partial" }],
+		};
+		const once = renumberContent(content, template);
+		expect(once).toBe("## - X");
+		expect(renumberContent(once, template)).toBe(once);
+	});
+
+	it("超界分支（level < topLevel）：WJ 后有前导空格，连续触发幂等", () => {
+		// topLevel=3 → H2（level=2）低于起始层，走「只剥不编号」路径。
+		const content = `## 1 ${WORD_JOINER}  - X`;
+		const template: Template = { ...DEFAULT_TEMPLATE, topLevel: 3 };
+		const once = renumberContent(content, template);
+		expect(once).toBe("## - X");
+		expect(renumberContent(once, template)).toBe(once);
+	});
+
+	it("编号分支：WJ 后有前导空格，编号后前导空白被去除，幂等", () => {
+		// H2 在编号范围内（topLevel=2）；剥旧前缀得「  - X」→ 去首白→「- X」→ 加新前缀。
+		const content = `## 1 ${WORD_JOINER}  - X`;
+		const once = renumberContent(content, DEFAULT_TEMPLATE);
+		expect(once).toBe(`## 1 ${WORD_JOINER}- X`);
+		expect(renumberContent(once, DEFAULT_TEMPLATE)).toBe(once);
+	});
+
+	it("多个前导空格的极端情况：全部去掉，不影响尾随空白处理", () => {
+		// 4 个前导空格；确认不误伤纯空标题（text 为空时去首不影响）。
+		const content = `## 1 ${WORD_JOINER}    末项`;
+		const template: Template = {
+			...DEFAULT_TEMPLATE,
+			whitelist: [{ text: "末项", match: "partial" }],
+		};
+		const once = renumberContent(content, template);
+		expect(once).toBe("## 末项");
+		expect(renumberContent(once, template)).toBe(once);
+	});
+});
