@@ -734,7 +734,9 @@ function stripHeadingPrefix(
 	template: Template,
 	options: Pick<NumberOptions, "strippablePrefixes" | "strippableSuffixes"> = {},
 ): string {
-	return stripPrefix(heading.rawText, level, template, options).replace(/\s+$/, "");
+	return stripPrefix(heading.rawText, level, template, options)
+		.replace(/^[ \t]+/, "")
+		.replace(/\s+$/, "");
 }
 
 // ============================================================================
@@ -1000,7 +1002,7 @@ export function numberHeadings(
 				prev = current;
 				current = stripPrefix(current, level, template, options);
 			} while (current !== prev);
-			const text = current.replace(/\s+$/, "");
+			const text = current.replace(/^[ \t]+/, "").replace(/\s+$/, "");
 			return {
 				level,
 				text,
