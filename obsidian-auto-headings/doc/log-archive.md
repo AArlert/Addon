@@ -5,6 +5,124 @@
 
 ---
 
+## 2026-06-30 0.7.3 修 Backlink 实测断链：写入链接保留 WJ（M11 根治）（claude/obsidian-auto-headings-release-lfniw0）
+
+### 背景
+
+用户实测 0.7.2 backlink：开开关后，指向**编号标题**的内部链接「没更新 / 不生效」，唯独在被引用文件里手动跑
+「清除编号」命令才生效。关键线索：**清除后是裸标题（无 WJ）→ 链接生效；编号态（含 WJ）→ 链接失效**。
+
+### 根因（M11 落实为真 bug）
+
+编号写入的标题含不可见 Word Joiner（`## 1 ⁠标题`）。0.7.1 的 `linkAnchor` 在**写入侧也剥 WJ**，于是写出
+`[[a#1 标题]]`（无 WJ）。**Obsidian 标题锚点解析按字节比对、不剥 WJ**，故剥了 WJ 的链接解析不到含 WJ 的标题
+→ 显示断链（用户感知「没更新」）。清除编号得裸标题，链接（无 WJ）反而能解析——正是用户观察到的现象。
+
+### 做了什么
+
+- **`src/backlinks.ts` 拆双口径锚点**：
+  - `linkAnchor`（**匹配用**：改名表 `from` + 引用链接 subpath）：仍**剥 WJ**，含不含 WJ 的既有链接都能匹配。
+  - 新增 `displayAnchor`（**写入用**：改名表 `to`）：**保留 WJ** + 去 `[ ] # | ^` + 折叠空白（WJ 不在 `\s` 内，
+    不受折叠影响）。写出的链接 `[[a#1 ⁠标题]]` 与真实标题字节对齐 → Obsidian 必然解析（裸标题无 WJ 时两者等价）。
+  - `computeHeadingRenames`：`from=linkAnchor(旧)`、变化判定 `linkAnchor(新)`、`to=displayAnchor(新)`（仅 WJ 差异不算变化）。
+- **测试**：`backlinks.test.ts` 加 `displayAnchor` 块 + 改 `computeHeadingRenames` 期望（`to` 带 WJ）；`main.test.ts`
+  集成期望链接含 WJ。UVM 往返记分板**无需改**（两侧都过 `linkAnchor` 比较，WJ 无关），8000×80 全绿。260 passed（+2）。
+- 文档：spec §3.12 锚点归一改「匹配/写入双口径」+ M11 标已修；testplan M11→✅(待 Obsidian 复测)、新增 M13（只在编号
+  改写标题时同步，对「已编号后手敲的不匹配链接」不主动修——设计取舍）。bump 0.7.2→0.7.3。
+
+### 没做什么
+
+- 未改 WJ 在标题里的存在本身（方案 A 核心，保留）；只改链接生成口径。
+- 「已编号态、之后手敲不匹配链接」不主动修（需真实标题变更触发）——属设计取舍，登记 testplan M13。
+
+### 下一步
+
+1. **用户 Obsidian 复测 M11**：编号标题 + 别处链接 → 改动标题（增删上方标题致重排）→ 链接应自动跟新且**可点开解析**。
+2. 无碍后英文 README → bump 1.0.0 → 提交社区 PR。
+
+### 验证方式
+
+- `npm test` 260 passed；8000×80 两记分板 + backlink 往返全绿；lint / format / build / release 全绿。
+- `displayAnchor` 保留 WJ、`linkAnchor` 剥 WJ 由 `backlinks.test.ts` 钉死；集成链接含 WJ 由 `main.test.ts` 覆盖。
+
+---
+
+## 2026-06-30 0.7.2 修三个实测 GUI / 触发 bug（改模板不刷新 / 新增模板卡顿 / 整行可拖动）（claude/obsidian-auto-headings-release-lfniw0）
+
+### 背景
+
+用户实测 0.7.1 报三个 bug（其中 N1 导致 backlink 无法实测，因为改模板不触发重排）：
+
+### 做了什么
+
+- **N1 改模板样式后已编号标题不刷新**（一→①，根因，连带 backlink 测不了）：`renumberActiveFile` 原用
+  `getActiveViewOfType(MarkdownView)`，**设置面板是模态层、打开时活动视图常为 `null`** → 静默跳过。
+  改为遍历 **`getLeavesOfType("markdown")` 全部打开叶子**逐个重排（仍按 shouldAutoTrigger + 路径解析模板门控），
+  顺带支持多文件同时刷新。`main.test.ts` 加两条回归（一→①刷新、多叶子同时重排）。
+- **N2 新增模板卡顿 / GUI 不第一时间显示**：新增按钮原 `await templateStore.create()`（含磁盘写入）后才
+  `display()`，慢盘 / 同步库阻塞。`TemplateStore.create` 改**同步加内存 + 后台落盘**（`void write().catch()`），
+  点击即重绘；落盘失败仅退化为「重启丢该模板」，无破坏。按钮 onClick 去掉 await。
+- **N3 路径规则整行可拖动**：`draggable` 原设在整行 `row`（妨碍路径输入框选词）。改为 `draggable` +
+  `dragstart`/`dragend` 只挂 `⠿` 手柄，行仅作放置目标（dragover/drop 不变）。新增 i18n `dragHandleTooltip`。
+
+### 没做什么
+
+- 未碰编号引擎 / backlink 核心（纯触发层 + GUI + TemplateStore）。
+- 白名单预览的 `currentFileHeadings/currentFilePath` 仍用 `getActiveViewOfType`（同源潜在问题，但未被报告、
+  且「当前文件」预览语义在多叶子下本就模糊，留观察）。
+
+### 下一步
+
+1. 用户重测：改模板样式即时刷新 → 进而**实测 M11**（WJ 链接能否被 Obsidian 解析，1.0 前必验）。
+2. 无碍后英文 README → bump 1.0.0 → 提交社区 PR。
+
+### 验证方式
+
+- `npm test` 258 passed（+2）；lint / format / build / release 全绿。
+- N1 回归：`main.test.ts` 改样式后 `## 一 ⁠章`→`## ① ⁠章`、多叶子各自 `## 1 ⁠X`。
+
+---
+
+## 2026-06-30 0.7.1 Backlink 同步落地（M7 核心，opt-in 默认关）+ UVM 纳入往返不变量（claude/obsidian-auto-headings-release-lfniw0）
+
+### 背景
+
+承 0.7.0 立项：Backlink 同步是上架前唯一硬短板。先扒了竞品 **Header Enhancer** 的 `src/backlinks.ts` 实现
+（命令驱动 / `getBacklinksForFile` 反查 / `vault.read`+`vault.modify` 写回 / 子串匹配 / 不处理别名与重复标题），
+确认架构可抄、四处可做得更稳。spec §3.12 已据此补全（4 改进 + 2 风险规避）。本周期落地实现。
+
+### 做了什么
+
+- **新增 `src/backlinks.ts`（纯函数核心，可纯单测）**：
+  - `linkAnchor`：标题→锚点归一（剥 WJ + 去 `[ ] # | ^` + 折叠空白 + trim），**两侧同口径**故含不含 WJ 都匹配，写出链接剥 WJ 干净。
+  - `computeHeadingRenames(old,new)`：两侧 `parseHeadings` 按 `lineIndex` 配对（编号不重排行），取变化且非空者；**重复旧锚点歧义剔除**（保守不改）。
+  - `rewriteBacklinksInContent`：正则扫 `[[…]]`/`![[…]]`，basename 命中 + subpath 归一命中才改，**保留别名 `|alias` 与嵌入 `!`**；块引用 `^`/多级锚点 `#A#B`/同文件内链分别处理。
+- **接线 `src/main.ts`**：新增 `syncBacklinks(target,old,new)`——`updateBacklinks` 开 + 改名表非空才进入（日常打字零开销）；`getBacklinksForFile` 取 `.data` Map 反查、`vault.process` **原子**写回（优于 Header Enhancer 的 read+modify）；半公开 API 缺失静默降级、**绝不打断编号**。挂到 `applyRenumber`（自动/手动/改模板三路径）+ 两个清除命令。
+- **设置 / i18n / GUI**：`settings.updateBacklinks`（默认 false + loadSettings 迁移）；i18n 加 `updateBacklinksName/Desc` + `noticeBacklinksUpdated`（中英）；SettingsTab 防抖滑块下加开关。
+- **比 Header Enhancer 改进 4 处**（spec §3.12）：原子 `vault.process` / 保留别名嵌入 / 重复标题保守不改 / 自动路径 gate。规避 2 风险：未文档化 API 适配降级、不用子串匹配。
+- **扩大 UVM 验证范围**：framework 新增**第三块记分板** `checkBacklinkRoundTrip`（两 oracle 都跑）——断言改名表幂等 + 链接重写往返一致（`[[Target#旧]]` 重写后恰指向同标题新名），覆盖率加 `backlink-rename` bin。**8000×80 全绿**（撞出并修正一处不变量边界：标题被编号吃成空锚点时按设计不改名，排除出断言）。
+- **测试**：新增 `backlinks.test.ts`（20，纯函数：归一/改名表/重写各边界）；`main.test.ts` +4（集成：开关开/关、清除同步、幂等不改）。**256 passed**（+24）。
+- 文档：spec §3.12 重写 + TOC、testplan 新增 **M 类**（M1–M12）+ §4 三记分板、README 功能条 + Milestone。bump 0.7.0→0.7.1。
+
+### 没做什么
+
+- **未在 Obsidian 内实测 WJ 链接解析**（testplan M11，**user_tests 必验**）：写出的链接剥 WJ、真实标题含 WJ，需确认能解析；若否，改为生成侧保留 WJ（`linkAnchor` 仅匹配侧剥），一行可切。
+- 重复同名标题精确消歧（`#标题-1`）、多级锚点 `#A#B`、全库扫描修历史断链：**保守跳过**，留 M8 backlog。
+- 同文件内链 `[[#锚点]]` 在「本文件正编辑且有未保存改动」时与编辑器缓冲的冲突：边角，登记已知限制。
+- 未 bump 1.0 / 未提交社区 PR：**依然内测打磨**（M7 进行中）。
+
+### 下一步
+
+1. **user_tests 实测 M11**（WJ 链接解析）+ M7/M12（同文件内链、大库性能）——这是 1.0 前最后的运行时确认。
+2. 实测无碍后：英文 README + 截图 → `npm run bump 1.0.0` → 打 `v1.0.0` Release → 提交 `obsidian-releases` PR。
+
+### 验证方式
+
+- `npm test` 256 passed；`AAH_FUZZ_RUNS=8000 AAH_FUZZ_OPS=80` 两记分板 + backlink 往返全绿；lint / format / build / release 全绿。
+- backlink 纯函数边界（别名/嵌入/块引用/多级/basename/重复/同文件）由 `backlinks.test.ts` 钉死；触发接线由 `main.test.ts` 集成覆盖。
+
+---
+
 ## 2026-06-30 0.7.0 上架冲刺立项：竞品分析 + Roadmap 重构 + Backlink 定为 1.0 前置（claude/obsidian-auto-headings-release-lfniw0）
 
 ### 背景

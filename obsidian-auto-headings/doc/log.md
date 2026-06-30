@@ -37,121 +37,99 @@
 
 ---
 
-## 2026-06-30 0.7.3 修 Backlink 实测断链：写入链接保留 WJ（M11 根治）（claude/obsidian-auto-headings-release-lfniw0）
+## 2026-06-30 0.7.6 UVM 扩展阶段 2：World→Vault 多文件+多模板+路径规则+S7（缺口③）（claude/obsidian-headings-uvm-test-y8wdjh）
 
-### 背景
+**做了什么**：按用户「搞定阶段 2，考虑尽可能多的真实用户操作」，把 `framework.ts` 的 `World` 从「单文件单模板」
+重构为**多文件 + 多模板 + 路径规则的仓库模型**，纳入缺口③的全部真实用户操作：
 
-用户实测 0.7.2 backlink：开开关后，指向**编号标题**的内部链接「没更新 / 不生效」，唯独在被引用文件里手动跑
-「清除编号」命令才生效。关键线索：**清除后是裸标题（无 WJ）→ 链接生效；编号态（含 WJ）→ 链接失效**。
+- **多文件**：`files[]`（各文件独立 bare/rendered/frontmatter）+ `cur` 当前文件 + `switchFile` 切换。
+  `bare`/`rendered`/`frontmatterState` 改为 getter/setter 委托到当前文件，原编辑/触发逻辑零改动复用。
+- **多模板**：`templates[]` 命名模板集（锚点「默认」+ 随机 1–2 个，**共享前后缀候选池** → 固定剥离并集恒为
+  真实 `strippableAffixes()` 上界）。config 类激励改**随机挑一个模板** `tpl` 的字段（原 `this.template` 全替换）。
+  生命周期：`createTemplate`（≤3 个）/ `deleteTemplate`（锚点不可删，引用其的规则降级·改投·连删）/
+  `renameTemplate`（改名 + 同步规则）。
+- **路径规则**：`pathRules[]` + `addRule`/`deleteRule`/`editRulePattern`/`setRuleTemplate`/`reorderRule`；
+  当前文件经真实 `resolvePathRule` + 查找解析生效模板（= 插件 `getTemplateForFile`），删根规则/无命中 →
+  无模板（自动静默 / 手动无操作，I7/K6）。
+- **S7 模板解析记分板** `checkResolution`：① 无悬挂引用（每条规则引用的模板都存在 → 生命周期同步正确）；
+  ② 锚点恒在；③ 真实 `resolvePathRule` 与**独立参考解析** `expectedResolve` 一致（具体度 + 并列取后者）。
+- 跨模板残留（B2/B3 真实形态）由参考模型**每文件**压测；trigger 用解析模板，`check`/`checkIdempotent`/
+  `detectWhitelistCoverage`/`exemptBareIndices` 改接收模板参数。`finish` 补根规则后逐文件手动触发结算。
+- 新增覆盖率 bin（multi-template / cross-template-switch / null-resolution / resolve-root·folder·file /
+  9 个生命周期 op + file-switched）500×60 闭合。
 
-### 根因（M11 落实为真 bug）
+**压力测试结果（不 debug 只记录）**：8000×80 + **20000×80** 三记分板（参考 + 幂等 + Backlink，叠加 S4/S5/S6/S7）
+**全绿，未发现引擎 bug**。修了一处**框架自身**边界（非引擎）：`deleteTemplate` 连删可能把 `pathRules` 清空，
+`editRulePattern`/`setRuleTemplate` 取 `rng.int(0)` 越界 → 加空数组守卫。
 
-编号写入的标题含不可见 Word Joiner（`## 1 ⁠标题`）。0.7.1 的 `linkAnchor` 在**写入侧也剥 WJ**，于是写出
-`[[a#1 标题]]`（无 WJ）。**Obsidian 标题锚点解析按字节比对、不剥 WJ**，故剥了 WJ 的链接解析不到含 WJ 的标题
-→ 显示断链（用户感知「没更新」）。清除编号得裸标题，链接（无 WJ）反而能解析——正是用户观察到的现象。
+**没做什么**：未改任何 `src/`（只改 `framework.ts` + 文档）——插件行为零变化，260 测试不变。缺口④（Backlink 开关
+门控）属集成层（main.ts `syncBacklinks` + 半公开 API），与 `getBacklinksForFile` 适配同源，留 `main.test`（M2）。
+**剥离并集**取共享候选池上界（方案 A）；放开「各模板用不同候选 + 按活模板动态算并集 → 删模板孤儿残留」留 backlog。
 
-### 做了什么
+**下一步**：UVM 扩展蓝图阶段 1+2 全部落地，验证空间已覆盖「用户实际会触及」的绝大多数操作。回到 M7 上架
+冲刺主线：用户 Obsidian 复测 M11 → 英文 README → bump 1.0.0 → 提交社区 PR。
 
-- **`src/backlinks.ts` 拆双口径锚点**：
-  - `linkAnchor`（**匹配用**：改名表 `from` + 引用链接 subpath）：仍**剥 WJ**，含不含 WJ 的既有链接都能匹配。
-  - 新增 `displayAnchor`（**写入用**：改名表 `to`）：**保留 WJ** + 去 `[ ] # | ^` + 折叠空白（WJ 不在 `\s` 内，
-    不受折叠影响）。写出的链接 `[[a#1 ⁠标题]]` 与真实标题字节对齐 → Obsidian 必然解析（裸标题无 WJ 时两者等价）。
-  - `computeHeadingRenames`：`from=linkAnchor(旧)`、变化判定 `linkAnchor(新)`、`to=displayAnchor(新)`（仅 WJ 差异不算变化）。
-- **测试**：`backlinks.test.ts` 加 `displayAnchor` 块 + 改 `computeHeadingRenames` 期望（`to` 带 WJ）；`main.test.ts`
-  集成期望链接含 WJ。UVM 往返记分板**无需改**（两侧都过 `linkAnchor` 比较，WJ 无关），8000×80 全绿。260 passed（+2）。
-- 文档：spec §3.12 锚点归一改「匹配/写入双口径」+ M11 标已修；testplan M11→✅(待 Obsidian 复测)、新增 M13（只在编号
-  改写标题时同步，对「已编号后手敲的不匹配链接」不主动修——设计取舍）。bump 0.7.2→0.7.3。
-
-### 没做什么
-
-- 未改 WJ 在标题里的存在本身（方案 A 核心，保留）；只改链接生成口径。
-- 「已编号态、之后手敲不匹配链接」不主动修（需真实标题变更触发）——属设计取舍，登记 testplan M13。
-
-### 下一步
-
-1. **用户 Obsidian 复测 M11**：编号标题 + 别处链接 → 改动标题（增删上方标题致重排）→ 链接应自动跟新且**可点开解析**。
-2. 无碍后英文 README → bump 1.0.0 → 提交社区 PR。
-
-### 验证方式
-
-- `npm test` 260 passed；8000×80 两记分板 + backlink 往返全绿；lint / format / build / release 全绿。
-- `displayAnchor` 保留 WJ、`linkAnchor` 剥 WJ 由 `backlinks.test.ts` 钉死；集成链接含 WJ 由 `main.test.ts` 覆盖。
+**验证方式**：`npm test` 260 passed；`AAH_FUZZ_RUNS=20000 AAH_FUZZ_OPS=80` 三记分板全绿；lint / format / 覆盖率闭合全绿。
+复现单条：`AAH_FUZZ_SEED=<n> AAH_FUZZ_RUNS=1 AAH_FUZZ_OPS=80 npx vitest run tests/dev_tests/random_sequence.test.ts`。
 
 ---
 
-## 2026-06-30 0.7.2 修三个实测 GUI / 触发 bug（改模板不刷新 / 新增模板卡顿 / 整行可拖动）（claude/obsidian-auto-headings-release-lfniw0）
+## 2026-06-30 0.7.5 UVM 扩展阶段 1：清除命令 S4/S5 + 两层门控 S6（缺口①②）（claude/obsidian-headings-uvm-test-y8wdjh）
 
-### 背景
+**做了什么**：按用户「1、2 都做，跑压力测试，不 debug 只记录」落地扩展蓝图**阶段 1**——把两类真实用户操作
+纳入 `framework.ts` 激励空间与记分板（原框架只压 `renumberContent`）：
 
-用户实测 0.7.1 报三个 bug（其中 N1 导致 backlink 无法实测，因为改模板不触发重排）：
+- **缺口①清除命令**：新增激励 `clearNumbering`（DUT `clearNumberingContent`）/ `clearForeign`
+  （DUT `clearForeignNumberingContent`），配 **S4 清除还原律**（清除编号 → 还原裸文档）+ **S5 清外来不动律**
+  （清外来 → 不动自家 WJ 编号）。守卫：只在「裸文档为 clear 定点」（`clear(bare)===bare`）时施加并断言，
+  自动排除自食前缀 / 白名单豁免 / 像外来编号的裸标题；且**仅参考模式**施加。
+- **缺口②两层触发门控**：新增 `setFrontmatterSwitch`（true/false/非法/删除，渲染成真实 `---` 块）/
+  `setAutoNumber`（全局开关）。触发分**手动**（`manualTrigger`，绕过门控，对应「立即重新编号」）/**自动**
+  （`trigger`，过真实 `readFileSwitch` + 全局开关的 `shouldAutoTrigger`）。**S6 门控**：门控关时 `rendered`
+  冻结（自动触发不应用）、且真实 `readFileSwitch` 解析与结构化 fm 状态一致（`checkGate`）。
+- 新增覆盖率 bin（gated-off / fm=false·true·illegal / autoNumber-off-trigger / manual-trigger /
+  clear-restore(S4) / clear-foreign-noop(S5)），500×60 默认运行**闭合**。
 
-### 做了什么
+**压力测试结果（不 debug 只记录）**：8000×80 两记分板（参考 + explore 幂等）+ S4/S5/S6 **全绿，未发现引擎 bug**。
+唯一记录的边界：explore 模式 `mutatePrefix` 故意抹掉 WJ 后，「清外来」剥掉失去 WJ 的残缺前缀属**预期**
+（用户破坏了编号、插件靠 WJ 认不出是自家的），S5「无操作」前提随之不成立——故 S4/S5 仅在参考（干净）模式
+施加。登记为 testplan §3.2 取舍 **S5b**（非 bug）。
 
-- **N1 改模板样式后已编号标题不刷新**（一→①，根因，连带 backlink 测不了）：`renumberActiveFile` 原用
-  `getActiveViewOfType(MarkdownView)`，**设置面板是模态层、打开时活动视图常为 `null`** → 静默跳过。
-  改为遍历 **`getLeavesOfType("markdown")` 全部打开叶子**逐个重排（仍按 shouldAutoTrigger + 路径解析模板门控），
-  顺带支持多文件同时刷新。`main.test.ts` 加两条回归（一→①刷新、多叶子同时重排）。
-- **N2 新增模板卡顿 / GUI 不第一时间显示**：新增按钮原 `await templateStore.create()`（含磁盘写入）后才
-  `display()`，慢盘 / 同步库阻塞。`TemplateStore.create` 改**同步加内存 + 后台落盘**（`void write().catch()`），
-  点击即重绘；落盘失败仅退化为「重启丢该模板」，无破坏。按钮 onClick 去掉 await。
-- **N3 路径规则整行可拖动**：`draggable` 原设在整行 `row`（妨碍路径输入框选词）。改为 `draggable` +
-  `dragstart`/`dragend` 只挂 `⠿` 手柄，行仅作放置目标（dragover/drop 不变）。新增 i18n `dragHandleTooltip`。
+**没做什么**：未改任何 `src/`（只改 `tests/dev_tests/uvm/framework.ts` + 文档）——插件行为零变化，260 测试不变。
+缺口③（多文件 + 多模板 + 路径规则，S7）、缺口④（Backlink 开关门控）属结构性升级，留**阶段 2**（World→Vault）。
 
-### 没做什么
+**下一步**：评审阶段 1 后按 testplan §4.1.5 做阶段 2（`World→Vault` 多文件多模板 + S7 模板解析稳定律 +
+真实 `strippableAffixes()` 并集）。M7 上架冲刺主线（Obsidian 复测 M11 → 英文 README → 1.0.0 → 社区 PR）并行不受影响。
 
-- 未碰编号引擎 / backlink 核心（纯触发层 + GUI + TemplateStore）。
-- 白名单预览的 `currentFileHeadings/currentFilePath` 仍用 `getActiveViewOfType`（同源潜在问题，但未被报告、
-  且「当前文件」预览语义在多叶子下本就模糊，留观察）。
-
-### 下一步
-
-1. 用户重测：改模板样式即时刷新 → 进而**实测 M11**（WJ 链接能否被 Obsidian 解析，1.0 前必验）。
-2. 无碍后英文 README → bump 1.0.0 → 提交社区 PR。
-
-### 验证方式
-
-- `npm test` 258 passed（+2）；lint / format / build / release 全绿。
-- N1 回归：`main.test.ts` 改样式后 `## 一 ⁠章`→`## ① ⁠章`、多叶子各自 `## 1 ⁠X`。
+**验证方式**：`npm test` 260 passed；`AAH_FUZZ_RUNS=8000 AAH_FUZZ_OPS=80` 两记分板全绿；lint / format / 覆盖率闭合全绿。
+复现单条：`AAH_FUZZ_SEED=<n> AAH_FUZZ_RUNS=1 AAH_FUZZ_OPS=80 npx vitest run tests/dev_tests/random_sequence.test.ts`。
 
 ---
 
-## 2026-06-30 0.7.1 Backlink 同步落地（M7 核心，opt-in 默认关）+ UVM 纳入往返不变量（claude/obsidian-auto-headings-release-lfniw0）
+## 2026-06-30 0.7.4 UVM 扩展蓝图（纯文档·待评审，未碰 src/测试）（claude/obsidian-headings-uvm-test-y8wdjh）
 
-### 背景
+**做了什么**：应需求「把插件展现给用户的**全部**操作纳入 UVM 验证框架」，先做**分析 + 书面方案**
+（用户选 D：先交付蓝图评审，暂不写代码）。逐文件核对了用户操作面（main.ts 命令/门控、SettingsTab
+全部 GUI 操作、pathrules/frontmatter/cleanup 语义），与现框架 `OpKind` 激励空间对照，定位四大缺口：
+①清除命令（`clearNumberingContent`/`clearForeignNumberingContent`）整个 DUT 家族零覆盖；②两层触发门控
+（frontmatter×全局 autoNumber）UVM 永远无条件触发；③多模板+路径规则+多文件（真实 `strippableAffixes()`
+并集从未跑到，现用假并集近似）；④Backlink 开关门控未在随机空间建模。为每个缺口配恒成立新记分板
+S4 清除还原律 / S5 清外来不动律 / S6 门控冻结律 / S7 模板解析稳定律，并给出 `World→Vault` 结构升级、
+新增 `OpKind` 清单、需求驱动约束（非盲目随机）、覆盖率 bin、分阶段实现路线。
 
-承 0.7.0 立项：Backlink 同步是上架前唯一硬短板。先扒了竞品 **Header Enhancer** 的 `src/backlinks.ts` 实现
-（命令驱动 / `getBacklinksForFile` 反查 / `vault.read`+`vault.modify` 写回 / 子串匹配 / 不处理别名与重复标题），
-确认架构可抄、四处可做得更稳。spec §3.12 已据此补全（4 改进 + 2 风险规避）。本周期落地实现。
+**落点**：`doc/testplan.md` 新增 §4.1「扩展蓝图」（人类操作全清单×覆盖状态表 + 缺口排序 + 四不变量 +
+World→Vault 设计 + 分阶段）；`tests/dev_tests/uvm/README.md` 新增「升级蓝图」摘要（指向 testplan §4.1）。
+全部明确标注**规划/待实现**，不暗示已有测试。bump 0.7.3→0.7.4。
 
-### 做了什么
+**没做什么**：未改 `framework.ts` / 任何 `src/` / 任何测试——行为零变化，260 测试与 8000×80 不受影响。
+未实现 S4–S7 任何一条。
 
-- **新增 `src/backlinks.ts`（纯函数核心，可纯单测）**：
-  - `linkAnchor`：标题→锚点归一（剥 WJ + 去 `[ ] # | ^` + 折叠空白 + trim），**两侧同口径**故含不含 WJ 都匹配，写出链接剥 WJ 干净。
-  - `computeHeadingRenames(old,new)`：两侧 `parseHeadings` 按 `lineIndex` 配对（编号不重排行），取变化且非空者；**重复旧锚点歧义剔除**（保守不改）。
-  - `rewriteBacklinksInContent`：正则扫 `[[…]]`/`![[…]]`，basename 命中 + subpath 归一命中才改，**保留别名 `|alias` 与嵌入 `!`**；块引用 `^`/多级锚点 `#A#B`/同文件内链分别处理。
-- **接线 `src/main.ts`**：新增 `syncBacklinks(target,old,new)`——`updateBacklinks` 开 + 改名表非空才进入（日常打字零开销）；`getBacklinksForFile` 取 `.data` Map 反查、`vault.process` **原子**写回（优于 Header Enhancer 的 read+modify）；半公开 API 缺失静默降级、**绝不打断编号**。挂到 `applyRenumber`（自动/手动/改模板三路径）+ 两个清除命令。
-- **设置 / i18n / GUI**：`settings.updateBacklinks`（默认 false + loadSettings 迁移）；i18n 加 `updateBacklinksName/Desc` + `noticeBacklinksUpdated`（中英）；SettingsTab 防抖滑块下加开关。
-- **比 Header Enhancer 改进 4 处**（spec §3.12）：原子 `vault.process` / 保留别名嵌入 / 重复标题保守不改 / 自动路径 gate。规避 2 风险：未文档化 API 适配降级、不用子串匹配。
-- **扩大 UVM 验证范围**：framework 新增**第三块记分板** `checkBacklinkRoundTrip`（两 oracle 都跑）——断言改名表幂等 + 链接重写往返一致（`[[Target#旧]]` 重写后恰指向同标题新名），覆盖率加 `backlink-rename` bin。**8000×80 全绿**（撞出并修正一处不变量边界：标题被编号吃成空锚点时按设计不改名，排除出断言）。
-- **测试**：新增 `backlinks.test.ts`（20，纯函数：归一/改名表/重写各边界）；`main.test.ts` +4（集成：开关开/关、清除同步、幂等不改）。**256 passed**（+24）。
-- 文档：spec §3.12 重写 + TOC、testplan 新增 **M 类**（M1–M12）+ §4 三记分板、README 功能条 + Milestone。bump 0.7.0→0.7.1。
+**下一步**：评审本蓝图后按 §4.1.5 落地。建议**阶段 1 先行**（清除命令新激励 + S4/S5 + 两层门控 + S6，
+单 `World` 内增量，风险低），跑 explore 实测确立 S4/S5 的排除项（自食前缀/白名单豁免/空标题）；
+阶段 2 再做 `World→Vault` 多文件多模板重构 + S7 + 真实并集。M7 上架冲刺主线（Obsidian 复测 M11 →
+英文 README → bump 1.0.0 → 社区 PR）不受影响，UVM 扩展属并行的验证强化。
 
-### 没做什么
-
-- **未在 Obsidian 内实测 WJ 链接解析**（testplan M11，**user_tests 必验**）：写出的链接剥 WJ、真实标题含 WJ，需确认能解析；若否，改为生成侧保留 WJ（`linkAnchor` 仅匹配侧剥），一行可切。
-- 重复同名标题精确消歧（`#标题-1`）、多级锚点 `#A#B`、全库扫描修历史断链：**保守跳过**，留 M8 backlog。
-- 同文件内链 `[[#锚点]]` 在「本文件正编辑且有未保存改动」时与编辑器缓冲的冲突：边角，登记已知限制。
-- 未 bump 1.0 / 未提交社区 PR：**依然内测打磨**（M7 进行中）。
-
-### 下一步
-
-1. **user_tests 实测 M11**（WJ 链接解析）+ M7/M12（同文件内链、大库性能）——这是 1.0 前最后的运行时确认。
-2. 实测无碍后：英文 README + 截图 → `npm run bump 1.0.0` → 打 `v1.0.0` Release → 提交 `obsidian-releases` PR。
-
-### 验证方式
-
-- `npm test` 256 passed；`AAH_FUZZ_RUNS=8000 AAH_FUZZ_OPS=80` 两记分板 + backlink 往返全绿；lint / format / build / release 全绿。
-- backlink 纯函数边界（别名/嵌入/块引用/多级/basename/重复/同文件）由 `backlinks.test.ts` 钉死；触发接线由 `main.test.ts` 集成覆盖。
+**验证方式**：纯文档改动，`npm test` / `lint` / `format:check` 应仍全绿（行为未变）；`npm run docs` 归档自检。
 
 ---
 
