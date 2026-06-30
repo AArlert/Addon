@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	computeHeadingRenames,
+	displayAnchor,
 	linkAnchor,
 	rewriteBacklinksInContent,
 	type HeadingRename,
@@ -34,15 +35,29 @@ describe("linkAnchor：标题 → 链接锚点归一", () => {
 	});
 });
 
-describe("computeHeadingRenames：旧→新 标题锚点改名表", () => {
-	it("首次编号：裸标题 → 带前缀（按行配对，剥 WJ）", () => {
-		const renames = computeHeadingRenames("## 简介", `## 1 ${WJ}简介`);
-		expect(renames).toEqual([{ from: "简介", to: "1 简介" }]);
+describe("displayAnchor：写入用锚点保留 WJ（确保链接可解析到含 WJ 的标题）", () => {
+	it("保留 Word Joiner（与 linkAnchor 的唯一区别）", () => {
+		expect(displayAnchor(`1 ${WJ}简介`)).toBe(`1 ${WJ}简介`);
+		// 对照：linkAnchor 剥 WJ。
+		expect(linkAnchor(`1 ${WJ}简介`)).toBe("1 简介");
 	});
 
-	it("重排：1.1 → 1.2", () => {
+	it("裸标题（无 WJ）：与 linkAnchor 等价", () => {
+		expect(displayAnchor("简介")).toBe("简介");
+		expect(displayAnchor("  标题  含   空白  ")).toBe("标题 含 空白");
+	});
+});
+
+describe("computeHeadingRenames：旧→新 标题锚点改名表", () => {
+	it("首次编号：裸标题 → 带前缀（from 剥 WJ 匹配；to 保留 WJ 以能解析）", () => {
+		const renames = computeHeadingRenames("## 简介", `## 1 ${WJ}简介`);
+		// from 剥 WJ（匹配既有链接）；to 保留 WJ（写入的新链接字节对齐含 WJ 的标题）。
+		expect(renames).toEqual([{ from: "简介", to: `1 ${WJ}简介` }]);
+	});
+
+	it("重排：1.1 → 1.2（to 保留 WJ）", () => {
 		const renames = computeHeadingRenames(`## 1.1 ${WJ}简介`, `## 1.2 ${WJ}简介`);
-		expect(renames).toEqual([{ from: "1.1 简介", to: "1.2 简介" }]);
+		expect(renames).toEqual([{ from: "1.1 简介", to: `1.2 ${WJ}简介` }]);
 	});
 
 	it("清除编号：带前缀 → 裸标题", () => {
@@ -60,8 +75,8 @@ describe("computeHeadingRenames：旧→新 标题锚点改名表", () => {
 		const before = ["## 甲", "## 乙"].join("\n");
 		const after = [`## 1 ${WJ}甲`, `## 2 ${WJ}乙`].join("\n");
 		expect(computeHeadingRenames(before, after)).toEqual([
-			{ from: "甲", to: "1 甲" },
-			{ from: "乙", to: "2 乙" },
+			{ from: "甲", to: `1 ${WJ}甲` },
+			{ from: "乙", to: `2 ${WJ}乙` },
 		]);
 	});
 
