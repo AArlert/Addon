@@ -37,6 +37,50 @@
 
 ---
 
+## 2026-06-30 0.7.0 上架冲刺立项：竞品分析 + Roadmap 重构 + Backlink 定为 1.0 前置（claude/obsidian-auto-headings-release-lfniw0）
+
+### 背景
+
+用户决定上架 Obsidian 社区。两轮深度竞品调研（Number Headings / Auto Heading / Header Enhancer /
+Auto Numbered Headings）结论：①龙头 Number Headings 已停更 ~2.5 年、38+ issue 堆积，**窗口开放**；
+②我们的差异化（自定义模板 / 按路径选模板 / 清除·清理外来编号）**竞品全无**；③**唯一硬短板 = Backlink 同步**
+（改标题后 `[[file#heading]]` 断链，社区呼声第一，仅 Header Enhancer 解决）。用户拍板：**Backlink 必做、
+版本号必 bump**。轻度用户「过度设计」质疑由「默认模板 + `/` 根规则（最低优先级）」开箱即得 `1.1.1` 化解——
+非新功能，是定位答案。
+
+### 做了什么（纯文档规划周期，未碰 src / 测试）
+
+- **新建 `doc/competitive.md`**：竞品全景 + 功能对比矩阵 + 社区痛点排序 + 定位结论 + 发布策略。
+  数据来自各竞品仓库 / Release / Issues / 论坛（2024–2026），下载量为调研约值（标注）。
+- **`spec.md` 新增 §3.12 Backlink 同步**（1.0 前置）：问题 / 设计原则（挂编号写回后、opt-in、WJ 锚点边界）/
+  四步流程（改名表 → 反查 backlink → 单事务重写锚点 → Notice）/ 边界（重复标题消歧 `#标题-1`、块引用、
+  大库性能、undo 一致性、历史断链）。
+- **`spec.md` Roadmap 重构**：M6 标 ✅ 完成；**M7 改为「上架冲刺」**（Backlink 核心 + 英文 README + `1.0.0` 转正
+  + 提交 `obsidian-releases` PR + 发布自检）；原 backlog（批量 / 导出 / 预览）下沉**新建 M8**，并加「扫描修复历史
+  断链」「（观察）Visual-only」两项。
+- **README Milestone 表**同步：M6→完成、M7→上架冲刺(进行中)、M8→Backlog；版本说明补「M7 完成转 1.0.0」+ 指向 competitive.md。
+- **bump 0.6.9 → 0.7.0**（`npm run bump minor`，进入 M7）。
+
+### 没做什么
+
+- **未实现 Backlink**（本周期只立规格 + 排期）；未碰任何 `src/` 逻辑、未改测试（232 passed 不变）。
+- 未写英文 README（M7 物料阶段做）；未提交社区 PR。
+- §3.12 的开放问题（重复锚点消歧、undo 合批与否）留实现期定夺并登记 testplan。
+
+### 下一步
+
+1. **实现 Backlink 同步**（M7 核心）：先在 `numbering` 输出「旧→新标题文本」改名集；新增 `backlinks.ts`
+   走 `metadataCache.getBacklinksForFile` 反查 + 单事务重写锚点；opt-in 开关进 settings + SettingsTab。
+2. testplan 先加 Backlink 场景行（含重复标题 / 块引用 / undo 边界）再动代码。
+3. Backlink 绿后：英文 README + 截图 → `npm run bump 1.0.0` → 打 `v1.0.0` Release → 提交 `obsidian-releases` PR。
+
+### 验证方式
+
+- 本周期纯文档：`npm test`（232 passed）/ `npm run lint` / `npm run format:check` / `npm run release` 全绿（行为未变）。
+- spec / README / competitive 三处 Roadmap 口径一致（M6✅ / M7 上架冲刺 / M8 backlog）。
+
+---
+
 ## 2026-06-30 0.6.9 代码符号地图（codemap）自动生成 + 接入文档守卫（claude/workflow-optimization-discussion-v8tdxg）
 
 ### 背景
@@ -121,36 +165,6 @@
 - `npm run docs` 后 log.md 仅剩 3 周期块 + 常青块，log-archive.md 含 32 旧块且倒序；重复跑幂等（无新归档）。
 - 守卫退出码：`docs --check`（3 块）exit 0 静默；`docs --check --keep 2`（模拟超标）exit 1 报错。`.githooks/pre-commit` 手动执行触发 obsidian-auto-headings 守卫并通过。
 - `npm test` / `npm run lint` / `npm run format:check` / `npm run release` 全绿。
-
----
-
-## 2026-06-30 0.6.7 修 U4（标题前导空白非幂等）+ explore 转正回归（claude/heading-numbering-idempotency-equdp0）
-
-### 做了什么
-
-- **修 U4**（`src/numbering.ts`）——根因：`stripPrefix` 按 WJ 剥离后，正文可能带前导 ASCII 空白（脏编辑/破坏前缀残留）；白名单/超界分支输出 `${hashes} ${text}` 时多一个空格，下次 parser `[ \t]+` 贪婪吞掉全部前导空格，两次解析出不同 `rawText`，非幂等。修法：
-  - `stripHeadingPrefix` 末尾追加 `.replace(/^[ \t]+/, "")`（去首 ASCII 空白），覆盖白名单分支和编号分支。
-  - `numberHeadings` 超界分支（`level < top || level > bottom`）的 `text` 同样追加 `.replace(/^[ \t]+/, "")`。
-  - 仅去 ASCII `[ \t]`（不动全角空格 U+3000），与 parser `HEADING_RE` 的 `[ \t]+` 对称，修复现有全角空格白名单测试（`## 　目录　`）。
-- **4 条回归测试**（`tests/dev_tests/numbering.test.ts`，「U4：标题正文含 WJ 后前导空白时幂等」块）：白名单分支 / 超界分支 / 编号分支 / 多前导空格极端情况，全部幂等。
-- **explore 转正**（`tests/dev_tests/random_sequence.test.ts`）：U4 是 explore 记分板最后一个未修 bug，修后 seed=95 单跑通过、8000×80 全绿无新 bug；去掉 `it.skip` 门控，explore 幂等性记分板变为常规 CI（500×60）。`AAH_FUZZ_MODE` 环境变量保留但不再作 skip 门控。
-- **testplan §3.2 U4**：状态 ⚠️→✅，补根因说明与修复方案。
-- **版本**：0.6.6 → 0.6.7，release/ 重建。
-
-### 没做什么
-
-- 未改其他模块（编号逻辑 / 白名单 / 路径规则 / i18n / 设置面板）。
-- U3（字母样式吞英文起头标题）属设计取舍，explore 框架内部通过 `EXPLORE_GEN` 约束规避，未作修改。
-
-### 下一步
-
-- 手验：① 插件写出 `## 1 ⁠  - 列表式标题`（前导空格）后两次触发结果相同；② explore 8000×80 常绿监控。
-- 可选：清理 `random_sequence.test.ts` 中已过时的 `MODE` 常量（不再使用，但无害）。
-
-### 验证方式
-
-`npm test`（232 passed / 0 skipped）、`npm run lint`、`npm run format:check`、`npm run release` 全绿。
-`AAH_FUZZ_RUNS=8000 AAH_FUZZ_OPS=80 npx vitest run tests/dev_tests/random_sequence.test.ts`：2 tests passed。
 
 ---
 
