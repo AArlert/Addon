@@ -4,7 +4,7 @@
 > 给「grep 优先、禁整读大文件」纪律用：先在本表搜函数/方法名 → 拿 `文件:行号` 与一句话意图 →
 > 再去 grep / 读那一处。覆盖：**全局索引**（全部文件）；**大纲**仅列超过 300 行的大文件。
 
-## 索引（154 个符号 → 位置，按名排序）
+## 索引（156 个符号 → 位置，按名排序）
 
 | 符号 | 位置 |
 |------|------|
@@ -60,7 +60,7 @@
 | `ClearVaultModal.constructor` | `src/settings/SettingsTab.ts:1002` |
 | `ClearVaultModal.onClose` | `src/settings/SettingsTab.ts:1026` |
 | `ClearVaultModal.onOpen` | `src/settings/SettingsTab.ts:1007` |
-| `computeHeadingRenames` | `src/backlinks.ts:54` |
+| `computeHeadingRenames` | `src/backlinks.ts:66` |
 | `computeWhitelistExemptions` | `src/numbering.ts:793` |
 | `createDefaultTemplate` | `src/templates/schema.ts:166` |
 | `DEFAULT_WHITELIST` | `src/numbering.ts:159` |
@@ -72,6 +72,7 @@
 | `DeleteTemplateModal.onClose` | `src/settings/SettingsTab.ts:988` |
 | `DeleteTemplateModal.onOpen` | `src/settings/SettingsTab.ts:934` |
 | `detectObsidianLang` | `src/i18n.ts:28` |
+| `displayAnchor` | `src/backlinks.ts:55` |
 | `escapeRegExp` | `src/numbering.ts:608` |
 | `FileSwitch` | `src/frontmatter.ts:16` |
 | `getLevelFormat` | `src/numbering.ts:331` |
@@ -92,7 +93,7 @@
 | `LangSetting` | `src/i18n.ts:18` |
 | `LevelFormat` | `src/numbering.ts:120` |
 | `LevelKey` | `src/templates/schema.ts:35` |
-| `linkAnchor` | `src/backlinks.ts:38` |
+| `linkAnchor` | `src/backlinks.ts:43` |
 | `linkBasename` | `src/main.ts:604` |
 | `LinkTarget` | `src/main.ts:598` |
 | `matchLabel` | `src/settings/SettingsTab.ts:54` |
@@ -117,7 +118,7 @@
 | `NumeralStyle` | `src/numbering.ts:18` |
 | `numeralTokenPattern` | `src/numbering.ts:661` |
 | `parseHeadings` | `src/parser.ts:47` |
-| `pathMatchesTarget` | `src/backlinks.ts:82` |
+| `pathMatchesTarget` | `src/backlinks.ts:95` |
 | `PathRule` | `src/pathrules.ts:21` |
 | `previewLevel` | `src/numbering.ts:585` |
 | `readFileSwitch` | `src/frontmatter.ts:27` |
@@ -125,7 +126,7 @@
 | `renumberContent` | `src/numbering.ts:1101` |
 | `resolveLang` | `src/i18n.ts:38` |
 | `resolvePathRule` | `src/pathrules.ts:94` |
-| `rewriteBacklinksInContent` | `src/backlinks.ts:102` |
+| `rewriteBacklinksInContent` | `src/backlinks.ts:115` |
 | `ruleMatches` | `src/pathrules.ts:58` |
 | `ruleSpecificity` | `src/pathrules.ts:76` |
 | `sanitizePlaceholder` | `src/numbering.ts:100` |
@@ -133,6 +134,7 @@
 | `SkipFill` | `src/numbering.ts:88` |
 | `stripForeignNumbering` | `src/numbering.ts:1077` |
 | `stripHeadingPrefix` | `src/numbering.ts:731` |
+| `stripIllegal` | `src/backlinks.ts:30` |
 | `stripInlineMarkdown` | `src/numbering.ts:756` |
 | `stripPrefix` | `src/numbering.ts:708` |
 | `stripPrefixBroad` | `src/numbering.ts:1043` |

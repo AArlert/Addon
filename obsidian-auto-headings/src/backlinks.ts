@@ -26,22 +26,34 @@ export interface HeadingRename {
 /** 匹配 wikilink / 嵌入：捕获可选的 `!`（嵌入）与内部 `path#sub|alias`。 */
 const WIKILINK_RE = /(!?)\[\[([^\]\n]+?)\]\]/g;
 
-/**
- * 把一段标题文本归一为 Obsidian 标题链接的**锚点形式**，用于改名表键与链接 subpath 的**双侧**匹配。
- *
- * 处理：剥 Word Joiner（插件写入的不可见标记，见 {@link WORD_JOINER}）→ 去 Obsidian 在标题链接里
- * **不允许**的字符 `[ ] # | ^` → 折叠内部空白为单个空格 → trim。
- *
- * 两侧同口径是关键：既有链接可能含 / 不含 WJ（取决于创建时机），都剥 WJ 后即可稳定匹配；生成的新
- * 链接也走它（剥 WJ）→ 链接干净。**仅用于匹配 / 生成锚点，不改写标题本身。**
- */
-export function linkAnchor(text: string): string {
-	return text
-		.split(WORD_JOINER)
-		.join("")
+/** 去 Obsidian 在标题链接里**不允许**的字符 `[ ] # | ^`、折叠内部空白、trim（WJ 不在 `\s` 内，不受影响）。 */
+function stripIllegal(s: string): string {
+	return s
 		.replace(/[[\]#|^]/g, "")
 		.replace(/\s+/g, " ")
 		.trim();
+}
+
+/**
+ * 归一为**匹配用**锚点：先剥 Word Joiner（插件写入的不可见标记，见 {@link WORD_JOINER}）再 {@link stripIllegal}。
+ *
+ * 用于改名表的 `from` 键与引用链接的 subpath **比较**：既有链接可能含 / 不含 WJ（取决于创建时机），
+ * 两侧都剥 WJ 后即可稳定匹配。**仅用于判定，不写入文件。**
+ */
+export function linkAnchor(text: string): string {
+	return stripIllegal(text.split(WORD_JOINER).join(""));
+}
+
+/**
+ * 归一为**写入用**锚点（改名表的 `to`，即真正写进链接 `[[file#to]]` 的文本）：与 {@link linkAnchor} 同，
+ * 但**保留 WJ**。
+ *
+ * 关键修复（实测）：编号写入的标题含不可见 WJ（如 `## 1 ⁠标题`），Obsidian 的标题锚点解析按字节比对、
+ * **不剥 WJ**，故剥了 WJ 的链接（`[[file#1 标题]]`）解析不到含 WJ 的标题、显示为断链。保留 WJ 的链接
+ * （`[[file#1 ⁠标题]]`）与真实标题字节一致 → 必然解析得到（裸标题无 WJ 时本函数与 {@link linkAnchor} 等价）。
+ */
+export function displayAnchor(text: string): string {
+	return stripIllegal(text);
 }
 
 /**
@@ -67,9 +79,10 @@ export function computeHeadingRenames(oldContent: string, newContent: string): H
 	for (const h of oldHeadings) {
 		const nh = newByLine.get(h.lineIndex);
 		if (!nh) continue; // 该行不再是标题（编号流程下不会发生，防御）。
-		const from = linkAnchor(h.text);
-		const to = linkAnchor(nh.text);
-		if (!from || !to || from === to) continue;
+		const from = linkAnchor(h.text); // 匹配既有链接：剥 WJ。
+		const toKey = linkAnchor(nh.text); // 变化判定 / 空判定：剥 WJ 后比较（仅 WJ 差异不算变化）。
+		const to = displayAnchor(nh.text); // 真正写入链接：**保留 WJ**，确保新链接能解析到含 WJ 的标题。
+		if (!from || !toKey || from === toKey) continue;
 		if ((oldAnchorCount.get(from) ?? 0) > 1) continue; // 歧义：同名标题多处，保守不改。
 		if (seen.has(from)) continue;
 		seen.add(from);

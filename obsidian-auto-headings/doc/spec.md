@@ -688,8 +688,12 @@ Editor onChange 事件触发
   `parseHeadings` 按 `lineIndex` 配对即得「旧→新」，零成本。
 - **opt-in 开关 `updateBacklinks`，默认关**（内测期保守，与 Header Enhancer 一致；它会**改动别的文件**、
   且写回不在被改文件的 undo 步内，故默认关、显式开；稳定后再议默认开）。
-- **锚点归一 `linkAnchor`**：剥 WJ + 去 Obsidian 不允许的 `[ ] # | ^` + 折叠空白 + trim。**两侧同口径**
-  （改名表键与引用链接的 subpath 都过它），故无论既有链接是否含 WJ 都能匹配；写出的新链接**剥 WJ**、干净可读。
+- **锚点归一 = 匹配 / 写入双口径**（0.7.3 修，见 testplan M11）：
+  - **匹配用 `linkAnchor`**（改名表 `from` 键 + 引用链接 subpath）：**剥 WJ** + 去 `[ ] # | ^` + 折叠空白 + trim，
+    故无论既有链接是否含 WJ 都能匹配。
+  - **写入用 `displayAnchor`**（改名表 `to`，即写进链接的文本）：同上但**保留 WJ**。编号写入的标题含不可见 WJ
+    （`## 1 ⁠标题`），Obsidian 标题锚点解析按字节比对、**不剥 WJ**——剥了 WJ 的链接解析不到该标题、显示断链
+    （实测确认）；保留 WJ 的链接与真实标题字节对齐 → 必然解析（裸标题无 WJ 时两者等价）。
 
 **流程（每次标题文本改写后，`updateBacklinks` 开时）：**
 1. **算改名表** `computeHeadingRenames(oldContent, newContent)`：两侧 `parseHeadings` 按 `lineIndex` 配对，
@@ -711,8 +715,9 @@ Editor onChange 事件触发
 - **不用子串匹配判定命中**：改走 `linkAnchor` 规范化的整体相等 + 路径 basename 命中，避免「含该词的别的标题」被误改。
 
 **边界与开放问题（登记 testplan，部分留 backlog）：**
-- **WJ 与链接解析**（关键，留 user_tests 实测）：写出的新链接剥 WJ（干净），而真实标题含 WJ；需在 Obsidian 内
-  确认「剥 WJ 的链接能解析到含 WJ 的标题」。若否，改为新链接保留 WJ（`linkAnchor` 仅匹配侧剥、生成侧不剥），一行可切。
+- ~~**WJ 与链接解析**~~（**0.7.3 已修**）：实测确认剥 WJ 的链接解析不到含 WJ 的标题（显示断链），已改为
+  写入侧 `displayAnchor` **保留 WJ**（匹配侧 `linkAnchor` 仍剥 WJ）。注意：Backlink 同步**只在编号改写标题时**
+  触发——对「标题已是编号态、之后才手敲的不匹配链接」不会主动修（需一次真实的标题变更来触发，属设计取舍）。
 - **重复标题锚点**：同名标题多处时锚点歧义，本版**不改**（保守）；Obsidian 用 `#标题-1` 消歧的精确改名留 backlog。
 - **多级锚点 `#A#B`、块引用 `^id`**：本版只改单段标题锚点，多级 / 块引用**跳过不动**（保守）。
 - **同文件内链 `[[#锚点]]`**：本版在「引用方=本文件」时随 `vault.process` 处理；当本文件正被编辑且有未保存改动时

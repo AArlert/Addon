@@ -481,8 +481,8 @@ describe("Backlink 同步（M7，opt-in，见 spec.md §3.12）", () => {
 		await flushPromises();
 		// 目标文件正常编号。
 		expect(ed.getValue()).toBe(`## 1 ${WORD_JOINER}简介`);
-		// 引用文件的链接锚点被更新（剥 WJ、干净）。
-		expect(vaultFiles.get("b.md")).toBe("见 [[a#1 简介]] 一节。");
+		// 引用文件的链接锚点被更新，**保留 WJ**（字节对齐含 WJ 的标题，确保 Obsidian 能解析）。
+		expect(vaultFiles.get("b.md")).toBe(`见 [[a#1 ${WORD_JOINER}简介]] 一节。`);
 		expect(Notice.messages).toContain("已更新 1 处内部链接");
 	});
 
