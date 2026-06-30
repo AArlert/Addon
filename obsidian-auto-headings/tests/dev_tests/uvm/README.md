@@ -109,3 +109,33 @@ AAH_FUZZ_SEED=9 AAH_FUZZ_RUNS=1 AAH_FUZZ_OPS=60 npx vitest run tests/dev_tests/r
 1. 在 `OpKind` 加类型、在 `World.edit`/`config` 加生成与施加逻辑、在 `Coverage` 加对应 bin。
 2. 若新维度可能触达**已知 bug**，先加相应**约束**（并在上表登记对应 testplan ID），保持 CI 绿。
 3. 跑 `npm run test:fuzz` 几轮确认不误报，再提交。
+
+## 升级蓝图：把「用户全部操作」纳入验证（规划中，未实现）★
+
+> **本节是待评审方案，不是已落地代码。** 现框架把「用户」抽象成**单文件、单模板、不停手动重排**的人，
+> 三块记分板只压 `renumberContent` 一个纯函数。但插件实际暴露给用户的操作面远大于此——见
+> `doc/testplan.md` §4.1 的「人类操作全清单 × UVM 覆盖状态」（含完整缺口表与约束模型）。这里给实现者一份摘要。
+
+**四大缺口（零覆盖 / 近似覆盖）**：
+
+1. **清除命令**（`clearNumberingContent` / `clearForeignNumberingContent`）——整个 DUT 家族没进过激励空间。
+2. **两层触发门控**（frontmatter 开关 × 全局 `autoNumber`）——UVM 永远无条件触发，从不走 `shouldAutoTrigger`。
+3. **多模板 + 路径规则 + 多文件**——真实 `strippableAffixes()` 全模板并集从未被跑到（现用 `["",候选]` 假并集）。
+4. **Backlink 开关门控**——`updateBacklinks=false` 时不触碰引用方，未在随机空间建模。
+
+**四条新记分板（恒成立不变量）**：
+
+| ID                    | 不变量                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------ |
+| **S4** 清除还原律     | `clearNumberingContent(renumberContent(bare)) === bare`（自食标题 / 白名单豁免按设计排除）       |
+| **S5** 清外来不动律   | `clearForeignNumberingContent(renumberContent(bare)) === renumberContent(bare)`（WJ 边界正确性） |
+| **S6** 门控冻结律     | autoTrigger 在 `shouldAutoTrigger=false` 时 `rendered` 不变                                      |
+| **S7** 模板解析稳定律 | rename / 删模板降级改投后 `resolvePathRule(file)` 仍指向预期模板、旧前缀仍可剥净                 |
+
+**结构升级**：`World`（单文件单模板）→ `Vault`（`files` Map + 真实 `templates[]` + `pathRules[]` + `autoNumber/updateBacklinks` 门控）；
+新增 `OpKind`：`setFrontmatterSwitch`、`clearNumbering`、`clearForeign`、`manualRenumber`、`setAutoNumber`、`setBacklinkSync`、
+`createTemplate`/`deleteTemplate`/`renameTemplate`、`addRule`/`deleteRule`/`editRulePattern`/`setRuleTemplate`/`reorderRule`/`switchFilePath`。
+约束（需求语义边界，非盲目随机）与覆盖率 bin 见 testplan §4.1.4。
+
+**分阶段**：① 高价值三块（清除命令 S4/S5 + 门控 S6，单 `World` 可增量）；② 结构性（`World→Vault` + S7 + 真实并集）。
+**不入 UVM**（留 `main.test` / `user_tests`）：防抖时序、光标选区、拖拽/补全/滚动/折叠 DOM、语言文案、白名单命中预览、`getBacklinksForFile` 半公开 API 适配。

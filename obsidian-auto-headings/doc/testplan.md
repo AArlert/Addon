@@ -337,6 +337,91 @@
 >
 > 详见 `tests/dev_tests/uvm/README.md`。
 
+### 4.1 扩展蓝图：把「用户全部操作」纳入验证（规划 / 待评审，未实现）★
+
+> **本节是方案，不是已实现的测试。** 现框架把「用户」抽象成了**单文件、单模板、不停手动重排**的人——
+> 激励空间 `OpKind` 只含「单文档文本编辑 + 单模板字段配置 + trigger」，三块记分板**全部只压
+> `renumberContent` 一个纯函数**。但插件展现给用户的操作面远大于此。本蓝图把**真实人类会触及的
+> 全部操作**逐一映射进 UVM，并为每个缺口配一条**恒成立的新不变量**。实现按 §4.1.5 分阶段。
+
+#### 4.1.1 人类操作全清单 × UVM 覆盖状态
+
+| 面 | 操作 | DUT / 语义 | 现状 |
+|----|------|-----------|------|
+| 编辑器 | 增删标题/正文/代码块、改标题文本、改层级 | `renumberContent` | ✅ 已覆盖 |
+| 编辑器 | 改 frontmatter 开关 `obsidian-auto-headings: true/false/非法/删除` | `readFileSwitch`→`shouldAutoTrigger` | ❌ 没建模（UVM 无条件触发）|
+| 命令 | 立即重新编号（手动路径，绕过开关/防抖）| `renumberContent` | ⚠️ 等价 trigger，但未区分手动/自动路径 |
+| 命令 | **清除当前文件编号** | `clearNumberingContent`（全样式并集，独立模板）| ❌ 整个 DUT 没进激励空间 |
+| 命令 | **清理非本插件编号**（WJ 感知）| `clearForeignNumberingContent` | ❌ 同上 |
+| 命令/面板 | 切换全局自动编号 `autoNumber` | 门控 `shouldAutoTrigger` | ❌ 没建模（永远当作「开」）|
+| 面板 | 切换 Backlink 同步开关 `updateBacklinks` | 门控 `syncBacklinks` | ⚠️ 往返已压，门控未建模 |
+| 面板 | 防抖滑块/重置、语言下拉 | 时序 / 文案 | 🚫 不入 UVM（无文本语义，留手验）|
+| 路径规则 | 增/删/改 pattern、改规则模板、拖拽排序、加根规则 | `resolvePathRule` | ❌ 没建模（UVM 只有一个隐式模板）|
+| 模板管理 | 新建/删除（降级·改投·连删）/重命名（同步规则）| `TemplateStore` + 规则同步 | ❌ 只建模单模板字段编辑 |
+| 多模板共存 | 剥离用**全模板前后缀并集** | `strippableAffixes()` | ⚠️ 用 `["",候选]` 假并集近似 |
+| 多文件 | 不同文件按路径命中**不同模板** | 每文件独立状态 + resolvePathRule | ❌ 单文件世界 |
+| 危险区 | 清除全库编号 | `clearAllVaultNumbering`（逐文件 clearNumbering）| ❌ 没建模 |
+| GUI | 白名单命中预览、拖拽/补全/滚动/折叠、光标保留 | DOM | 🚫 留 `main.test`/`user_tests`（L4–L8、J6）|
+
+#### 4.1.2 缺口（按「逮状态转移 bug 的价值」排序）
+
+- **缺口 1 · 清除命令 × 编号命令交织（最高价值）**：`clearNumbering` / `clearForeign` 是独立 DUT，
+  用户会「编号 → 清除 → 再编号 → 清外来」反复走，现 UVM 一次都没调过。
+- **缺口 2 · 两层触发门控**（frontmatter × 全局开关）：自动路径受 `shouldAutoTrigger` 门控、手动绕过，
+  现 UVM 永远触发，从不走门控。
+- **缺口 3 · 多模板 + 路径规则 + 多文件**（结构性升级）：真实 `strippableAffixes()` 全模板并集从未被跑到，
+  「A 模板旧前缀写、切 B 模板再触发」的跨模板残留（B2/B3 真实形态）无覆盖。
+- **缺口 4 · Backlink 开关门控**：`updateBacklinks=false` 时绝不触碰引用方，未在随机空间建模。
+
+#### 4.1.3 新增不变量（恒成立的记分板）
+
+| ID | 不变量 | 逮什么 |
+|----|--------|--------|
+| **S4** 清除还原律 | `clearNumberingContent(renumberContent(bare)) === bare` | 编号器写的 WJ 前缀，全样式并集剥离器须能剥净还原（自食标题/白名单豁免按设计排除）|
+| **S5** 清外来不动律 | `clearForeignNumberingContent(renumberContent(bare)) === renumberContent(bare)` | 自家 WJ 编号不被「清外来」误碰（WJ 边界正确性）|
+| **S6** 门控冻结律 | autoTrigger 在 `shouldAutoTrigger=false`（fm:false 或全局关且非 fm:true）时 rendered 不变 | 门控误放行 / 冻结失效 |
+| **S7** 模板解析稳定律 | rename / 删模板降级改投后，`resolvePathRule(file)` 仍指向预期模板、旧前缀仍可剥净 | 规则同步漏改 / 解析分叉 |
+
+> S4/S5 的排除项须经 explore 实测确立（自食前缀 `SELF_EATING`、白名单豁免、空标题等可能让等式不成立，
+> 与现 backlink 往返记分板对「空锚点 / 歧义」的排除同理）。
+
+#### 4.1.4 框架升级设计（World → Vault）
+
+```
+World（单文件单模板）  →  Vault（多文件 + 多模板 + 路径规则 + 门控状态）
+  · files: Map<path, {bare[], rendered[], frontmatter}>   // 每文件锁步状态 + fm 开关
+  · templates: Template[]                                  // 真实多模板
+  · pathRules: PathRule[]                                  // 真实路径规则（resolvePathRule 选模板）
+  · autoNumber / updateBacklinks                           // 全局门控
+
+新增 OpKind：
+  编辑：setFrontmatterSwitch(true/false/illegal/none)
+  命令：clearNumbering、clearForeign、manualRenumber、autoEdit（受门控）
+  全局：setAutoNumber、setBacklinkSync
+  模板生命周期：createTemplate、deleteTemplate(降级/改投/连删)、renameTemplate
+  路径规则：addRule、deleteRule、editRulePattern、setRuleTemplate、reorderRule、switchFilePath
+
+约束（= 需求语义边界，保证「有规律」非盲目）：
+  ① fm 值域 {true,false,非法,缺省}，仅出现在文件最前 `---` 块（按 readFileSwitch 文法生成）
+  ② 文件→模板是 resolvePathRule 唯一确定函数，切模板只能经改规则/改路径
+  ③ 手动/清除命令绕过门控但仍受「能否命中模板」约束；命中不到 → 无操作（对应 I7/K6）
+  ④ clearNumbering 与模板无关（全样式并集）/ clearForeign WJ 感知（只动无 WJ）
+  ⑤ 删根规则/无命中 → 该文件无模板 → 自动静默、手动无变化、不写入
+  ⑥ 剥离并集复刻真实 strippableAffixes()（恒含空串 + 各模板真实前后缀），非手编候选
+
+新增覆盖率 bin：
+  op:clearNumbering/clearForeign、frontmatter=false/true/illegal、
+  autoNumber=off-trigger-skipped、multi-template-strip-union、cross-template-switch、
+  template-rename / delete-redirect、path-rule-resolved(file>folder>root)、backlink-gated-off
+```
+
+#### 4.1.5 分阶段实现
+
+- **阶段 1（高价值，可在单 `World` 内增量）**：清除命令新激励 + **S4/S5** + 两层门控 + **S6**。
+- **阶段 2（结构性）**：`World→Vault` 多文件/多模板/路径规则/模板生命周期 + **S7** + 真实并集。
+- **明确不入 UVM**（留 `main.test` 集成 / `user_tests` 手验）：防抖时序(J1–J3)、光标选区(J6)、
+  拖拽/补全/滚动/折叠 DOM(L4–L8)、语言文案、白名单命中预览、`getBacklinksForFile` 半公开 API 适配。
+
 ---
 
 ## 5. 维护工作流程
