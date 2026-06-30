@@ -244,25 +244,35 @@ export default class AutoHeadingsPlugin extends Plugin {
 	}
 
 	/**
-	 * 在设置面板修改模板后，立即对**当前活动 Markdown 文件**重新编号，使格式调整即时可见。
+	 * 在设置面板修改模板 / 路径规则后，立即对**所有已打开的 Markdown 文件**重新编号，使格式调整即时可见。
 	 *
-	 * 走与自动触发一致的判定（{@link shouldAutoTrigger} + 按路径解析模板）：全局开关关、
-	 * frontmatter `false`、或无可用模板时静默跳过；无活动编辑器时不动作。
+	 * **不走 `getActiveViewOfType`**：设置面板是模态层，打开时活动视图常不是 MarkdownView，
+	 * `getActiveViewOfType(MarkdownView)` 会返回 `null` → 改模板后已编号文件不刷新（实测 bug）。
+	 * 改为遍历 `getLeavesOfType("markdown")` 的全部打开叶子：每个仍走与自动触发一致的判定
+	 * （{@link shouldAutoTrigger} + 按路径解析模板），全局开关关 / frontmatter `false` / 无可用模板时静默跳过。
 	 */
 	renumberActiveFile(): void {
-		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (!view) {
-			return;
+		const leaves = this.app.workspace.getLeavesOfType("markdown");
+		for (const leaf of leaves) {
+			// getLeavesOfType("markdown") 的叶子视图即 MarkdownView（含 editor / file），鸭子类型取用。
+			const view = leaf.view as unknown as {
+				editor?: Editor;
+				file?: { path: string; basename?: string } | null;
+			};
+			const editor = view.editor;
+			const file = view.file;
+			if (!editor || !file) {
+				continue;
+			}
+			if (!this.shouldAutoTrigger(editor.getValue())) {
+				continue;
+			}
+			const template = this.getTemplateForFile(file.path);
+			if (!template) {
+				continue;
+			}
+			this.applyRenumber(editor, template, file);
 		}
-		const editor = view.editor;
-		if (!this.shouldAutoTrigger(editor.getValue())) {
-			return;
-		}
-		const template = this.getTemplateForFile(view.file?.path);
-		if (!template) {
-			return;
-		}
-		this.applyRenumber(editor, template, view.file);
 	}
 
 	/**

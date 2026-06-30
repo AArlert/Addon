@@ -151,14 +151,17 @@ export class TemplateStore {
 	}
 
 	/**
-	 * 新增一个模板（以默认模板为初始内容），落盘并加入内存。
+	 * 新增一个模板（以默认模板为初始内容），**同步**加入内存并返回，落盘在后台进行。
+	 *
+	 * 同步返回是为了让设置面板**立即**重绘出新模板行（此前 `await` 磁盘写入再 `display()`，慢盘 / 同步
+	 * 库下会卡顿、GUI 不第一时间显示——实测 bug）。落盘失败仅退化为「重启后丢失该模板」，无数据破坏风险。
 	 * @returns 新模板对象。
 	 */
-	async create(): Promise<Template> {
+	create(): Template {
 		const tpl = createDefaultTemplate();
 		tpl.name = this.nextUntitledName();
 		this.templates.set(tpl.name, tpl);
-		await this.adapter.write(this.filePath(tpl.name), serializeTemplate(tpl));
+		void this.adapter.write(this.filePath(tpl.name), serializeTemplate(tpl)).catch(() => {});
 		return tpl;
 	}
 

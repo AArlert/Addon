@@ -74,6 +74,17 @@ function cjkTemplate(): Template {
 	};
 }
 
+/** 以 H2 带圈样式覆盖默认模板（用于「改样式后已编号刷新」回归）。 */
+function circledTemplate(): Template {
+	return {
+		...DEFAULT_TEMPLATE,
+		levels: {
+			...DEFAULT_TEMPLATE.levels,
+			h2: { ...DEFAULT_TEMPLATE.levels.h2, numeral: "circled" },
+		},
+	};
+}
+
 /** 以 H2 前缀「第」覆盖默认模板（用于「全模板前后缀并集」接线）。 */
 function prefixTemplate(): Template {
 	return {
@@ -101,6 +112,8 @@ function makePlugin(
 ) {
 	const tplBox = { current: DEFAULT_TEMPLATE };
 	let activeView: { editor: FakeEditor; file?: { path: string } } | null = null;
+	// renumberActiveFile 现遍历 getLeavesOfType("markdown")（修设置面板打开时活动视图为 null 的 bug）。
+	let leaves: Array<{ view: { editor: FakeEditor; file?: { path: string } } }> = [];
 	const templates = () => opts.allTemplates ?? [tplBox.current];
 	// 假 vault：getAbstractFileByPath 返回同形 TFile（path+basename），process 读改写回内存。
 	const vaultFiles = new Map<string, string>(Object.entries(opts.vaultFiles ?? {}));
@@ -128,6 +141,7 @@ function makePlugin(
 			getActiveViewOfType: (
 				_cls: unknown,
 			): { editor: FakeEditor; file?: { path: string } } | null => activeView,
+			getLeavesOfType: (_type: string) => leaves,
 		},
 		vault,
 		metadataCache,
@@ -162,6 +176,11 @@ function makePlugin(
 		},
 		setActiveView: (v: { editor: FakeEditor; file?: { path: string } } | null) => {
 			activeView = v;
+			// 设置面板的「改模板即时重排」走 getLeavesOfType；单文件场景下叶子即活动视图。
+			leaves = v ? [{ view: v }] : [];
+		},
+		setLeaves: (vs: Array<{ editor: FakeEditor; file?: { path: string } }>) => {
+			leaves = vs.map((view) => ({ view }));
 		},
 	};
 }
@@ -402,6 +421,32 @@ describe("renumberActiveFile：设置面板改模板后即时重排（J5）", ()
 		const { p, setActiveView } = makePlugin();
 		setActiveView(null);
 		expect(() => p.renumberActiveFile()).not.toThrow();
+	});
+
+	it("改模板样式后已编号标题即时刷新（一 → ①，实测 bug 回归）", () => {
+		const { p, setTemplate, setLeaves } = makePlugin();
+		setTemplate(cjkTemplate());
+		const ed = new FakeEditor("## 章");
+		setLeaves([{ editor: ed, file: { path: "a.md" } }]);
+		p.renumberActiveFile();
+		expect(ed.getValue()).toBe(`## 一 ${WORD_JOINER}章`);
+		// 改样式 cjk → circled，已有的「一」编号应被刷新成「①」（此前因活动视图为 null 而不更新）。
+		setTemplate(circledTemplate());
+		p.renumberActiveFile();
+		expect(ed.getValue()).toBe(`## ① ${WORD_JOINER}章`);
+	});
+
+	it("遍历全部打开叶子：多个文件同时重排（不依赖哪个是活动视图）", () => {
+		const { p, setLeaves } = makePlugin();
+		const edA = new FakeEditor("## 甲");
+		const edB = new FakeEditor("## 乙");
+		setLeaves([
+			{ editor: edA, file: { path: "a.md" } },
+			{ editor: edB, file: { path: "b.md" } },
+		]);
+		p.renumberActiveFile();
+		expect(edA.getValue()).toBe(`## 1 ${WORD_JOINER}甲`);
+		expect(edB.getValue()).toBe(`## 1 ${WORD_JOINER}乙`);
 	});
 });
 

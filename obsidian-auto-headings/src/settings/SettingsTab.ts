@@ -181,8 +181,9 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 			btn
 				.setButtonText(t.addTemplate)
 				.setCta()
-				.onClick(async () => {
-					const created = await this.plugin.templateStore.create();
+				.onClick(() => {
+					// 同步创建 + 立即重绘（落盘在后台），避免等磁盘写入导致的卡顿 / GUI 不刷新。
+					const created = this.plugin.templateStore.create();
 					this.expandedTemplate = created.name; // 新建后自动展开。
 					this.display();
 				}),
@@ -254,10 +255,11 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 		const t = this.t;
 		const rules = this.plugin.settings.pathRules;
 		const row = table.createDiv({ cls: "ah-path-row" });
-		row.setAttr("draggable", "true");
 
-		// 拖拽手柄（整行可拖；手柄仅作视觉提示）。
-		row.createDiv({ cls: "ah-path-cell ah-path-handle", text: "⠿" });
+		// 拖拽手柄（**仅手柄可发起拖拽**，整行不再 draggable——否则会妨碍路径输入框的文本选择）。
+		const handle = row.createDiv({ cls: "ah-path-cell ah-path-handle", text: "⠿" });
+		handle.setAttr("draggable", "true");
+		handle.title = t.dragHandleTooltip;
 
 		// 行号。
 		row.createDiv({ cls: "ah-path-cell ah-path-index", text: String(index + 1) });
@@ -339,11 +341,12 @@ export class AutoHeadingsSettingTab extends PluginSettingTab {
 		});
 
 		// —— 拖拽排序 ——
-		row.addEventListener("dragstart", (e) => {
+		// 拖拽**从手柄发起**（draggable 只设在手柄上）；行本身仍作放置目标（dragover / drop）。
+		handle.addEventListener("dragstart", (e) => {
 			e.dataTransfer?.setData("text/plain", String(index));
 			row.addClass("ah-path-dragging");
 		});
-		row.addEventListener("dragend", () => row.removeClass("ah-path-dragging"));
+		handle.addEventListener("dragend", () => row.removeClass("ah-path-dragging"));
 		row.addEventListener("dragover", (e) => {
 			e.preventDefault();
 			row.addClass("ah-path-dragover");

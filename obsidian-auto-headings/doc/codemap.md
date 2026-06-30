@@ -13,69 +13,69 @@
 | `AncestorNumeral` | `src/numbering.ts:44` |
 | `assertCountedLevel` | `src/numbering.ts:324` |
 | `AutoHeadingsPlugin` | `src/main.ts:44` |
-| `AutoHeadingsPlugin.applyRenumber` | `src/main.ts:490` |
-| `AutoHeadingsPlugin.clearAllVaultNumbering` | `src/main.ts:365` |
+| `AutoHeadingsPlugin.applyRenumber` | `src/main.ts:500` |
+| `AutoHeadingsPlugin.clearAllVaultNumbering` | `src/main.ts:375` |
 | `AutoHeadingsPlugin.currentFileHeadings` | `src/main.ts:210` |
 | `AutoHeadingsPlugin.currentFilePath` | `src/main.ts:219` |
 | `AutoHeadingsPlugin.getTemplateForFile` | `src/main.ts:155` |
-| `AutoHeadingsPlugin.loadSettings` | `src/main.ts:383` |
+| `AutoHeadingsPlugin.loadSettings` | `src/main.ts:393` |
 | `AutoHeadingsPlugin.messages` | `src/main.ts:59` |
 | `AutoHeadingsPlugin.onload` | `src/main.ts:63` |
 | `AutoHeadingsPlugin.onunload` | `src/main.ts:129` |
 | `AutoHeadingsPlugin.renameTemplate` | `src/main.ts:229` |
-| `AutoHeadingsPlugin.renumberActiveFile` | `src/main.ts:252` |
-| `AutoHeadingsPlugin.runClearForeignNumbering` | `src/main.ts:320` |
-| `AutoHeadingsPlugin.runClearNumbering` | `src/main.ts:272` |
-| `AutoHeadingsPlugin.runImmediateRenumber` | `src/main.ts:456` |
-| `AutoHeadingsPlugin.saveSettings` | `src/main.ts:412` |
-| `AutoHeadingsPlugin.scheduleRenumber` | `src/main.ts:420` |
+| `AutoHeadingsPlugin.renumberActiveFile` | `src/main.ts:254` |
+| `AutoHeadingsPlugin.runClearForeignNumbering` | `src/main.ts:330` |
+| `AutoHeadingsPlugin.runClearNumbering` | `src/main.ts:282` |
+| `AutoHeadingsPlugin.runImmediateRenumber` | `src/main.ts:466` |
+| `AutoHeadingsPlugin.saveSettings` | `src/main.ts:422` |
+| `AutoHeadingsPlugin.scheduleRenumber` | `src/main.ts:430` |
 | `AutoHeadingsPlugin.setAutoNumber` | `src/main.ts:140` |
 | `AutoHeadingsPlugin.shouldAutoTrigger` | `src/main.ts:175` |
 | `AutoHeadingsPlugin.strippableAffixes` | `src/main.ts:194` |
-| `AutoHeadingsPlugin.syncBacklinks` | `src/main.ts:535` |
+| `AutoHeadingsPlugin.syncBacklinks` | `src/main.ts:545` |
 | `AutoHeadingsSettings` | `src/settings.ts:17` |
 | `AutoHeadingsSettingTab` | `src/settings/SettingsTab.ts:80` |
 | `AutoHeadingsSettingTab.constructor` | `src/settings/SettingsTab.ts:89` |
-| `AutoHeadingsSettingTab.deleteTemplate` | `src/settings/SettingsTab.ts:466` |
+| `AutoHeadingsSettingTab.deleteTemplate` | `src/settings/SettingsTab.ts:469` |
 | `AutoHeadingsSettingTab.display` | `src/settings/SettingsTab.ts:99` |
-| `AutoHeadingsSettingTab.previewText` | `src/settings/SettingsTab.ts:899` |
-| `AutoHeadingsSettingTab.renderDangerZone` | `src/settings/SettingsTab.ts:827` |
-| `AutoHeadingsSettingTab.renderEditPanel` | `src/settings/SettingsTab.ts:475` |
-| `AutoHeadingsSettingTab.renderPathRuleRow` | `src/settings/SettingsTab.ts:253` |
-| `AutoHeadingsSettingTab.renderPathRules` | `src/settings/SettingsTab.ts:204` |
-| `AutoHeadingsSettingTab.renderTemplateRow` | `src/settings/SettingsTab.ts:410` |
-| `AutoHeadingsSettingTab.renderWhitelistEditor` | `src/settings/SettingsTab.ts:709` |
-| `AutoHeadingsSettingTab.requestDeleteTemplate` | `src/settings/SettingsTab.ts:456` |
-| `AutoHeadingsSettingTab.saveAndPreview` | `src/settings/SettingsTab.ts:883` |
+| `AutoHeadingsSettingTab.previewText` | `src/settings/SettingsTab.ts:902` |
+| `AutoHeadingsSettingTab.renderDangerZone` | `src/settings/SettingsTab.ts:830` |
+| `AutoHeadingsSettingTab.renderEditPanel` | `src/settings/SettingsTab.ts:478` |
+| `AutoHeadingsSettingTab.renderPathRuleRow` | `src/settings/SettingsTab.ts:254` |
+| `AutoHeadingsSettingTab.renderPathRules` | `src/settings/SettingsTab.ts:205` |
+| `AutoHeadingsSettingTab.renderTemplateRow` | `src/settings/SettingsTab.ts:413` |
+| `AutoHeadingsSettingTab.renderWhitelistEditor` | `src/settings/SettingsTab.ts:712` |
+| `AutoHeadingsSettingTab.requestDeleteTemplate` | `src/settings/SettingsTab.ts:459` |
+| `AutoHeadingsSettingTab.saveAndPreview` | `src/settings/SettingsTab.ts:886` |
 | `AutoHeadingsSettingTab.t` | `src/settings/SettingsTab.ts:95` |
-| `AutoHeadingsSettingTab.textCell` | `src/settings/SettingsTab.ts:867` |
-| `AutoHeadingsSettingTab.updatePathDatalist` | `src/settings/SettingsTab.ts:374` |
+| `AutoHeadingsSettingTab.textCell` | `src/settings/SettingsTab.ts:870` |
+| `AutoHeadingsSettingTab.updatePathDatalist` | `src/settings/SettingsTab.ts:377` |
 | `buildPrefix` | `src/numbering.ts:527` |
 | `cjkSection` | `src/numbering.ts:358` |
 | `clampDebounceDelay` | `src/settings.ts:62` |
 | `CleanupOptions` | `src/cleanup.ts:13` |
 | `clearForeignNumberingContent` | `src/cleanup.ts:66` |
 | `clearNumberingContent` | `src/cleanup.ts:34` |
-| `ClearVaultModal` | `src/settings/SettingsTab.ts:996` |
-| `ClearVaultModal.constructor` | `src/settings/SettingsTab.ts:999` |
-| `ClearVaultModal.onClose` | `src/settings/SettingsTab.ts:1023` |
-| `ClearVaultModal.onOpen` | `src/settings/SettingsTab.ts:1004` |
+| `ClearVaultModal` | `src/settings/SettingsTab.ts:999` |
+| `ClearVaultModal.constructor` | `src/settings/SettingsTab.ts:1002` |
+| `ClearVaultModal.onClose` | `src/settings/SettingsTab.ts:1026` |
+| `ClearVaultModal.onOpen` | `src/settings/SettingsTab.ts:1007` |
 | `computeHeadingRenames` | `src/backlinks.ts:54` |
 | `computeWhitelistExemptions` | `src/numbering.ts:793` |
 | `createDefaultTemplate` | `src/templates/schema.ts:166` |
 | `DEFAULT_WHITELIST` | `src/numbering.ts:159` |
 | `defaultLevel` | `src/templates/schema.ts:52` |
 | `defaultPathRules` | `src/settings.ts:48` |
-| `DeleteTemplateModal` | `src/settings/SettingsTab.ts:917` |
-| `DeleteTemplateModal.applyAndClose` | `src/settings/SettingsTab.ts:969` |
-| `DeleteTemplateModal.constructor` | `src/settings/SettingsTab.ts:924` |
-| `DeleteTemplateModal.onClose` | `src/settings/SettingsTab.ts:985` |
-| `DeleteTemplateModal.onOpen` | `src/settings/SettingsTab.ts:931` |
+| `DeleteTemplateModal` | `src/settings/SettingsTab.ts:920` |
+| `DeleteTemplateModal.applyAndClose` | `src/settings/SettingsTab.ts:972` |
+| `DeleteTemplateModal.constructor` | `src/settings/SettingsTab.ts:927` |
+| `DeleteTemplateModal.onClose` | `src/settings/SettingsTab.ts:988` |
+| `DeleteTemplateModal.onOpen` | `src/settings/SettingsTab.ts:934` |
 | `detectObsidianLang` | `src/i18n.ts:28` |
 | `escapeRegExp` | `src/numbering.ts:608` |
 | `FileSwitch` | `src/frontmatter.ts:16` |
 | `getLevelFormat` | `src/numbering.ts:331` |
-| `getMessages` | `src/i18n.ts:496` |
+| `getMessages` | `src/i18n.ts:499` |
 | `hasRootRule` | `src/pathrules.ts:112` |
 | `Heading` | `src/parser.ts:14` |
 | `HeadingCounter` | `src/numbering.ts:286` |
@@ -93,8 +93,8 @@
 | `LevelFormat` | `src/numbering.ts:120` |
 | `LevelKey` | `src/templates/schema.ts:35` |
 | `linkAnchor` | `src/backlinks.ts:38` |
-| `linkBasename` | `src/main.ts:594` |
-| `LinkTarget` | `src/main.ts:588` |
+| `linkBasename` | `src/main.ts:604` |
+| `LinkTarget` | `src/main.ts:598` |
 | `matchLabel` | `src/settings/SettingsTab.ts:54` |
 | `Messages` | `src/i18n.ts:46` |
 | `normalizeAncestorNumeral` | `src/numbering.ts:50` |
@@ -142,8 +142,8 @@
 | `TemplateStore.all` | `src/templates/TemplateStore.ts:118` |
 | `TemplateStore.basename` | `src/templates/TemplateStore.ts:112` |
 | `TemplateStore.constructor` | `src/templates/TemplateStore.ts:35` |
-| `TemplateStore.create` | `src/templates/TemplateStore.ts:157` |
-| `TemplateStore.delete` | `src/templates/TemplateStore.ts:177` |
+| `TemplateStore.create` | `src/templates/TemplateStore.ts:160` |
+| `TemplateStore.delete` | `src/templates/TemplateStore.ts:180` |
 | `TemplateStore.filePath` | `src/templates/TemplateStore.ts:42` |
 | `TemplateStore.get` | `src/templates/TemplateStore.ts:123` |
 | `TemplateStore.getDefault` | `src/templates/TemplateStore.ts:128` |
@@ -153,8 +153,8 @@
 | `TemplateStore.readFile` | `src/templates/TemplateStore.ts:100` |
 | `TemplateStore.readOrDefault` | `src/templates/TemplateStore.ts:86` |
 | `TemplateStore.reload` | `src/templates/TemplateStore.ts:62` |
-| `TemplateStore.rename` | `src/templates/TemplateStore.ts:198` |
-| `TemplateStore.save` | `src/templates/TemplateStore.ts:168` |
+| `TemplateStore.rename` | `src/templates/TemplateStore.ts:201` |
+| `TemplateStore.save` | `src/templates/TemplateStore.ts:171` |
 | `toAlpha` | `src/numbering.ts:445` |
 | `toCircled` | `src/numbering.ts:432` |
 | `toCJK` | `src/numbering.ts:386` |
@@ -165,16 +165,16 @@
 
 ## 大文件大纲（> 300 行）
 
-### src/i18n.ts （499 行）
+### src/i18n.ts （502 行）
 
 - L15 `type Lang` — 已落地的界面语言。
 - L18 `type LangSetting` — 语言设置项：`auto` 跟随 Obsidian 界面语言，其余为显式锁定。
 - L28 `export function detectObsidianLang(): Lang` — 探测 Obsidian 的界面语言。Obsidian 把界面语言存于 `localStorage["language"]`
 - L38 `export function resolveLang(setting: LangSetting | undefined): Lang` — 将语言设置解析为具体语言：显式 `zh`/`en` 原样返回；`auto`/缺失走 。
 - L46 `interface Messages` — 全部界面文案的接口（纯字符串直接给值，需插值者给函数）。
-- L496 `export function getMessages(lang: Lang): Messages` — 取某语言的文案表。
+- L499 `export function getMessages(lang: Lang): Messages` — 取某语言的文案表。
 
-### src/main.ts （598 行）
+### src/main.ts （608 行）
 
 - L44 `class AutoHeadingsPlugin` — obsidian-auto-headings 插件入口。
 - L59 `messages(): Messages` — 当前界面语言的文案表（按 `settings.language` 解析，见  / ）。
@@ -187,18 +187,18 @@
 - L210 `currentFileHeadings(): Heading[]` — 解析**当前活动 Markdown 文件**的标题列表，供设置面板的白名单实时命中预览使用（见
 - L219 `currentFilePath(): string | null` — 当前活动 Markdown 文件的路径（无活动视图时为 null），供设置面板的白名单预览取模板。
 - L229 `async renameTemplate(oldName: string, newName: string): Promise<boolean>` — 重命名模板，并同步更新 `data.json` 中引用该模板名的路径规则（见 spec.md §3.6/§3.8）。
-- L252 `renumberActiveFile(): void` — 在设置面板修改模板后，立即对**当前活动 Markdown 文件**重新编号，使格式调整即时可见。
-- L272 `private runClearNumbering(editor: Editor, ctx: MarkdownView | MarkdownFileInfo): void` — 「清除当前文件编号」命令（**手动路径**，见 spec.md §3.10）：剥离当前文件所有标题的编号
-- L320 `private runClearForeignNumbering(editor: Editor, ctx: MarkdownView | MarkdownFileInfo): void` — 「清理非本插件的标题编号」命令（**手动路径**，0.6.6，见 spec.md §3.10）：只剥**不含 WJ** 的
-- L365 `async clearAllVaultNumbering(): Promise<void>` — 清除全库所有 Markdown 文件的编号前缀（见 spec.md §3.10「清除全库编号」按钮）。
-- L383 `async loadSettings(): Promise<void>`
-- L412 `async saveSettings(): Promise<void>`
-- L420 `private scheduleRenumber(editor: Editor, info: MarkdownView | MarkdownFileInfo): void` — 实时编辑触发（**自动路径**）：达到自动触发资格才重置该文件的防抖计时器；到期后再次
-- L456 `private runImmediateRenumber(editor: Editor, ctx: MarkdownView | MarkdownFileInfo): void` — 「立即重新编号」命令（**手动路径**，见 spec.md §3.1）：绕过防抖、绕过「全局自动编号」开关
-- L490 `private applyRenumber(editor: Editor, template: Template, target?: LinkTarget | null): boolean` — 用给定模板对编辑器执行一次重新编号，并以**单一事务**写回变化的行。
-- L535 `private async syncBacklinks( target: LinkTarget | null | undefined, oldContent: string, newContent:…` — Backlink 同步（M7，见 spec.md §3.12）：标题文本改写后，更新别的文件里指向旧标题锚点的内部链接。
-- L588 `interface LinkTarget` — Backlink 同步所需的最小目标文件形状（真实为 Obsidian `TFile`，测试可传同形对象）。
-- L594 `function linkBasename(path: string): string` — 从文件路径取 basename（去目录与 `.md` 后缀），用作 `TFile.basename` 缺失时的回退。
+- L254 `renumberActiveFile(): void` — 在设置面板修改模板 / 路径规则后，立即对**所有已打开的 Markdown 文件**重新编号，使格式调整即时可见。
+- L282 `private runClearNumbering(editor: Editor, ctx: MarkdownView | MarkdownFileInfo): void` — 「清除当前文件编号」命令（**手动路径**，见 spec.md §3.10）：剥离当前文件所有标题的编号
+- L330 `private runClearForeignNumbering(editor: Editor, ctx: MarkdownView | MarkdownFileInfo): void` — 「清理非本插件的标题编号」命令（**手动路径**，0.6.6，见 spec.md §3.10）：只剥**不含 WJ** 的
+- L375 `async clearAllVaultNumbering(): Promise<void>` — 清除全库所有 Markdown 文件的编号前缀（见 spec.md §3.10「清除全库编号」按钮）。
+- L393 `async loadSettings(): Promise<void>`
+- L422 `async saveSettings(): Promise<void>`
+- L430 `private scheduleRenumber(editor: Editor, info: MarkdownView | MarkdownFileInfo): void` — 实时编辑触发（**自动路径**）：达到自动触发资格才重置该文件的防抖计时器；到期后再次
+- L466 `private runImmediateRenumber(editor: Editor, ctx: MarkdownView | MarkdownFileInfo): void` — 「立即重新编号」命令（**手动路径**，见 spec.md §3.1）：绕过防抖、绕过「全局自动编号」开关
+- L500 `private applyRenumber(editor: Editor, template: Template, target?: LinkTarget | null): boolean` — 用给定模板对编辑器执行一次重新编号，并以**单一事务**写回变化的行。
+- L545 `private async syncBacklinks( target: LinkTarget | null | undefined, oldContent: string, newContent:…` — Backlink 同步（M7，见 spec.md §3.12）：标题文本改写后，更新别的文件里指向旧标题锚点的内部链接。
+- L598 `interface LinkTarget` — Backlink 同步所需的最小目标文件形状（真实为 Obsidian `TFile`，测试可传同形对象）。
+- L604 `function linkBasename(path: string): string` — 从文件路径取 basename（去目录与 `.md` 后缀），用作 `TFile.basename` 缺失时的回退。
 
 ### src/numbering.ts （1115 行）
 
@@ -247,7 +247,7 @@
 - L1077 `export function stripForeignNumbering(rawText: string): string` — 剥离一段标题文本里**外来 / 手写**的编号前缀——用于 0.6.6「清理非本插件的标题编号」命令
 - L1101 `export function renumberContent( content: string, template: Template = DEFAULT_TEMPLATE, options: N…` — 解析整篇文档、重新编号编号范围内（`>= topLevel`）的标题，并返回重写后的完整内容。
 
-### src/settings/SettingsTab.ts （1027 行）
+### src/settings/SettingsTab.ts （1030 行）
 
 - L34 `function numeralLabel(style: NumeralStyle, t: Messages): string` — 取序号样式在当前语言下的下拉标签（含示例字形）。
 - L54 `function matchLabel(match: WhitelistEntry["match"], t: Messages): string` — 取白名单匹配方式在当前语言下的下拉标签。
@@ -255,24 +255,24 @@
 - L89 `constructor(app: App, plugin: AutoHeadingsPlugin)`
 - L95 `private get t(): Messages` — 当前界面语言的文案表（随 `settings.language` 实时解析）。
 - L99 `display(): void`
-- L204 `private renderPathRules(containerEl: HTMLElement): void` — 渲染路径规则区（见 spec.md §3.8）：可视化表格（路径模式 → 模板），可增删、可拖拽排序、可滚动；
-- L253 `private renderPathRuleRow(table: HTMLElement, rule: PathRule, index: number): void` — 渲染单条路径规则行（拖拽手柄 + 行号 + 路径输入[含清空] + 模板下拉 + 删除）。
-- L374 `private updatePathDatalist(datalist: HTMLDataListElement, inputValue: string): void` — **分层**填充路径补全 `<datalist>`：仅列出当前输入所在目录的**直接子项**（输入 `/` 先给根与
-- L410 `private renderTemplateRow(parent: HTMLElement, template: Template): void` — 渲染单个模板的行（标题行 + 可展开编辑面板）。
-- L456 `private async requestDeleteTemplate(template: Template): Promise<void>` — 删除模板：若**未被任何路径规则引用**则直接删除；否则弹出「知情确认 + 安全降级」对话框
-- L466 `async deleteTemplate(name: string): Promise<void>` — 真正执行模板删除并刷新面板（收起其编辑面板）。
-- L475 `private renderEditPanel(parent: HTMLElement, template: Template, isDefault: boolean): void` — 渲染某模板的行内编辑面板：可选改名 + 起始/结束层级 + 五级×五列网格 + 实时预览。
-- L709 `private renderWhitelistEditor(panel: HTMLElement, template: Template): void` — 渲染某模板的白名单编辑器（模板级配置，见 spec.md §3.7）。
-- L827 `private renderDangerZone(containerEl: HTMLElement): void` — 渲染「危险区域」（**默认折叠**，见 spec.md §3.10）：点击标题展开后才显示「清除全库编号」。
-- L867 `private textCell( row: HTMLElement, value: string, placeholder: string, onChange: (value: string) =…` — 创建一个文本输入单元格，封装 onChange。
-- L883 `private async saveAndPreview( template: Template, level: number, key: LevelKey, previewEls: Map<Lev…` — 保存模板并刷新该级的预览文本。
-- L899 `private previewText(template: Template, level: number): string` — 计算某级的预览字符串（取前三个同级序号示例）；在编号区间之外时显示「（不编号）」。
-- L917 `class DeleteTemplateModal` — 删除被路径规则引用的模板时的「知情确认 + 安全降级」对话框（见 spec.md §3.6）。
-- L924 `constructor(app: App, templateName: string, affected: PathRule[], tab: AutoHeadingsSettingTab)`
-- L931 `onOpen(): void`
-- L969 `private async applyAndClose(plugin: AutoHeadingsPlugin): Promise<void>` — 按选择改写 / 删除受影响规则，再删除模板，刷新面板并关闭。
-- L985 `onClose(): void`
-- L996 `class ClearVaultModal` — 「清除全库编号」二次确认对话框（见 spec.md §3.10）。
-- L999 `constructor(app: App, plugin: AutoHeadingsPlugin)`
-- L1004 `onOpen(): void`
-- L1023 `onClose(): void`
+- L205 `private renderPathRules(containerEl: HTMLElement): void` — 渲染路径规则区（见 spec.md §3.8）：可视化表格（路径模式 → 模板），可增删、可拖拽排序、可滚动；
+- L254 `private renderPathRuleRow(table: HTMLElement, rule: PathRule, index: number): void` — 渲染单条路径规则行（拖拽手柄 + 行号 + 路径输入[含清空] + 模板下拉 + 删除）。
+- L377 `private updatePathDatalist(datalist: HTMLDataListElement, inputValue: string): void` — **分层**填充路径补全 `<datalist>`：仅列出当前输入所在目录的**直接子项**（输入 `/` 先给根与
+- L413 `private renderTemplateRow(parent: HTMLElement, template: Template): void` — 渲染单个模板的行（标题行 + 可展开编辑面板）。
+- L459 `private async requestDeleteTemplate(template: Template): Promise<void>` — 删除模板：若**未被任何路径规则引用**则直接删除；否则弹出「知情确认 + 安全降级」对话框
+- L469 `async deleteTemplate(name: string): Promise<void>` — 真正执行模板删除并刷新面板（收起其编辑面板）。
+- L478 `private renderEditPanel(parent: HTMLElement, template: Template, isDefault: boolean): void` — 渲染某模板的行内编辑面板：可选改名 + 起始/结束层级 + 五级×五列网格 + 实时预览。
+- L712 `private renderWhitelistEditor(panel: HTMLElement, template: Template): void` — 渲染某模板的白名单编辑器（模板级配置，见 spec.md §3.7）。
+- L830 `private renderDangerZone(containerEl: HTMLElement): void` — 渲染「危险区域」（**默认折叠**，见 spec.md §3.10）：点击标题展开后才显示「清除全库编号」。
+- L870 `private textCell( row: HTMLElement, value: string, placeholder: string, onChange: (value: string) =…` — 创建一个文本输入单元格，封装 onChange。
+- L886 `private async saveAndPreview( template: Template, level: number, key: LevelKey, previewEls: Map<Lev…` — 保存模板并刷新该级的预览文本。
+- L902 `private previewText(template: Template, level: number): string` — 计算某级的预览字符串（取前三个同级序号示例）；在编号区间之外时显示「（不编号）」。
+- L920 `class DeleteTemplateModal` — 删除被路径规则引用的模板时的「知情确认 + 安全降级」对话框（见 spec.md §3.6）。
+- L927 `constructor(app: App, templateName: string, affected: PathRule[], tab: AutoHeadingsSettingTab)`
+- L934 `onOpen(): void`
+- L972 `private async applyAndClose(plugin: AutoHeadingsPlugin): Promise<void>` — 按选择改写 / 删除受影响规则，再删除模板，刷新面板并关闭。
+- L988 `onClose(): void`
+- L999 `class ClearVaultModal` — 「清除全库编号」二次确认对话框（见 spec.md §3.10）。
+- L1002 `constructor(app: App, plugin: AutoHeadingsPlugin)`
+- L1007 `onOpen(): void`
+- L1026 `onClose(): void`
